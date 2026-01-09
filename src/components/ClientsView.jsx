@@ -1,7 +1,7 @@
 import React, { useRef, useState } from 'react';
 import { 
   Building2, Sun, Moon, LogOut, Search, Users, Loader2, UserCircle, CalendarDays, Clock, ChevronRight,
-  Upload, FileText, Plus // <--- 注意這裡是用大寫 Plus
+  Upload, FileText, Plus, Trash2, CheckSquare, Square // ★★★ 新增引入圖示
 } from 'lucide-react';
 import { STATUS_CONFIG } from '../config/constants';
 import { formatDateString, isDateInRange, getWeekRangeDisplay } from '../utils/helpers';
@@ -13,14 +13,25 @@ const StatusBadge = ({ status }) => {
     return <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${config.color}`}><Icon className="w-3 h-3 mr-1" />{config.label}</span>;
 };
 
-// --- 子元件：客戶卡片 ---
-const ClientCard = ({ c, darkMode, onClick, displayDate }) => {
+// --- 子元件：客戶卡片 (新增選取功能) ---
+const ClientCard = ({ c, darkMode, onClick, displayDate, isSelected, onToggleSelect }) => {
     const showDate = displayDate || c.lastContact || formatDateString(c.createdAt);
     const isHistoricalView = displayDate && displayDate !== c.lastContact;
 
     return (
-        <div onClick={() => onClick(c)} className={`group rounded-xl p-4 border cursor-pointer active:scale-[0.98] transition-all ${darkMode ? 'bg-slate-900 border-slate-800 hover:border-slate-700' : 'bg-white border-gray-200 hover:border-blue-400 shadow-sm'}`}>
-            <div className="flex justify-between items-start mb-2">
+        <div 
+            onClick={() => onClick(c)} 
+            className={`group rounded-xl p-4 border cursor-pointer active:scale-[0.98] transition-all relative ${isSelected ? 'border-blue-500 ring-1 ring-blue-500 bg-blue-50 dark:bg-blue-900/20' : (darkMode ? 'bg-slate-900 border-slate-800 hover:border-slate-700' : 'bg-white border-gray-200 hover:border-blue-400 shadow-sm')}`}
+        >
+            {/* ★★★ 選取核取方塊 ★★★ */}
+            <div 
+                onClick={(e) => { e.stopPropagation(); onToggleSelect(c.id); }}
+                className="absolute top-3 left-3 z-10 p-1 text-gray-400 hover:text-blue-500 cursor-pointer"
+            >
+                {isSelected ? <CheckSquare className="w-5 h-5 text-blue-600 fill-blue-100" /> : <Square className="w-5 h-5" />}
+            </div>
+
+            <div className="flex justify-between items-start mb-2 pl-6"> {/* pl-6 避開 checkbox */}
                 <div className="flex items-center min-w-0">
                     <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold mr-3 flex-shrink-0 ${darkMode ? 'bg-slate-800 text-blue-400' : 'bg-blue-50 text-blue-600'}`}>{c.name?.[0]}</div>
                     <div className="min-w-0">
@@ -60,12 +71,27 @@ const ClientsView = ({
     searchTerm, setSearchTerm,
     loading, visibleCustomers, isAdmin, groupedCustomers, myCustomers,
     setView, setSelectedCustomer,
-    onImport 
+    onImport, 
+    onBatchDelete // ★★★ 接收批次刪除函式
 }) => {
     const years = Array.from({length: 10}, (_, i) => new Date().getFullYear() - i); 
     const months = Array.from({length: 12}, (_, i) => i + 1);
     const fileInputRef = useRef(null);
     const [isImporting, setIsImporting] = useState(false);
+    
+    // ★★★ 選取狀態 ★★★
+    const [selectedIds, setSelectedIds] = useState([]);
+
+    // 切換單一選取
+    const toggleSelect = (id) => {
+        setSelectedIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
+    };
+
+    // 處理批次刪除
+    const handleBatchDeleteClick = () => {
+        onBatchDelete(selectedIds);
+        setSelectedIds([]); // 清空選取
+    };
 
     // --- Google 表單 CSV 解析邏輯 ---
     const handleFileChange = (e) => {
@@ -81,7 +107,6 @@ const ClientsView = ({
                 const lines = text.split(/\r\n|\n/).filter(line => line.trim() !== '');
                 if (lines.length < 2) { alert("檔案內容為空或格式錯誤"); return; }
 
-                // 處理標題列 (移除引號)
                 const headers = lines[0].split(',').map(h => h.replace(/^"|"$/g, '').trim());
                 
                 const parsedData = [];
@@ -165,17 +190,28 @@ const ClientsView = ({
                       <span className="bg-blue-100 text-blue-800 px-1.5 py-0.5 rounded flex items-center gap-1 font-bold"><Building2 className="w-3 h-3"/> {currentUser?.companyCode}</span>
                    </p>
                 </div>
-                <div className="flex gap-2">
-                   {/* ★★★ 新增客戶按鈕 (在這裡) ★★★ */}
-                   <button 
-                        onClick={() => setView('add')} 
-                        className={`flex items-center gap-2 px-3 py-2 rounded-full text-xs font-bold border transition-transform active:scale-95 ${darkMode ? 'bg-blue-600 text-white border-blue-500 hover:bg-blue-500' : 'bg-blue-600 text-white border-blue-600 hover:bg-blue-700'}`}
-                    >
-                        <Plus className="w-4 h-4" />
-                        <span className="hidden sm:inline">新增客戶</span>
-                   </button>
+                <div className="flex gap-2 items-center">
+                   
+                   {/* ★★★ 如果有選取項目，顯示刪除按鈕 ★★★ */}
+                   {selectedIds.length > 0 ? (
+                       <button 
+                           onClick={handleBatchDeleteClick} 
+                           className="bg-red-600 text-white px-3 py-2 rounded-full text-xs font-bold flex items-center gap-1 hover:bg-red-700 animate-pulse"
+                       >
+                           <Trash2 className="w-4 h-4" />
+                           刪除 ({selectedIds.length})
+                       </button>
+                   ) : (
+                       /* 沒選取時顯示新增按鈕 */
+                       <button 
+                            onClick={() => setView('add')} 
+                            className={`flex items-center gap-2 px-3 py-2 rounded-full text-xs font-bold border transition-transform active:scale-95 ${darkMode ? 'bg-blue-600 text-white border-blue-500 hover:bg-blue-500' : 'bg-blue-600 text-white border-blue-600 hover:bg-blue-700'}`}
+                        >
+                            <Plus className="w-4 h-4" />
+                            <span className="hidden sm:inline">新增客戶</span>
+                        </button>
+                   )}
 
-                   {/* 隱藏的檔案輸入框 */}
                    <input 
                         type="file" 
                         ref={fileInputRef} 
@@ -184,7 +220,6 @@ const ClientsView = ({
                         onChange={handleFileChange} 
                    />
                    
-                   {/* 匯入按鈕 */}
                    <button 
                         onClick={() => fileInputRef.current.click()} 
                         disabled={isImporting}
@@ -199,6 +234,7 @@ const ClientsView = ({
                    <button onClick={handleLogout} className={`p-2 rounded-full ${darkMode ? 'bg-slate-800 text-red-400' : 'bg-gray-200 text-gray-600'} hover:scale-110 transition-transform`}><LogOut className="w-5 h-5" /></button>
                 </div>
              </div>
+             
              {/* ... 以下保持不變 ... */}
              <div className="flex flex-col gap-2 mb-3">
                  <div className="flex bg-gray-200 dark:bg-slate-800 rounded-lg p-1">
@@ -255,7 +291,17 @@ const ClientsView = ({
                                  }
                              }
 
-                             return <ClientCard key={c.id} c={c} darkMode={darkMode} onClick={(client) => { setSelectedCustomer(client); setView('detail'); }} displayDate={displayDate} />;
+                             return (
+                                <ClientCard 
+                                    key={c.id} 
+                                    c={c} 
+                                    darkMode={darkMode} 
+                                    onClick={(client) => { setSelectedCustomer(client); setView('detail'); }} 
+                                    displayDate={displayDate} 
+                                    isSelected={selectedIds.includes(c.id)} // ★★★ 傳遞選取狀態
+                                    onToggleSelect={toggleSelect} // ★★★ 傳遞選取函式
+                                />
+                             );
                         })}
                     </div>
                  </div>
@@ -277,7 +323,17 @@ const ClientsView = ({
                              displayDate = validDates[0];
                         }
                     }
-                    return <ClientCard key={c.id} c={c} darkMode={darkMode} onClick={(client) => { setSelectedCustomer(client); setView('detail'); }} displayDate={displayDate} />;
+                    return (
+                        <ClientCard 
+                            key={c.id} 
+                            c={c} 
+                            darkMode={darkMode} 
+                            onClick={(client) => { setSelectedCustomer(client); setView('detail'); }} 
+                            displayDate={displayDate}
+                            isSelected={selectedIds.includes(c.id)} // ★★★ 傳遞選取狀態
+                            onToggleSelect={toggleSelect} // ★★★ 傳遞選取函式
+                        />
+                    );
                 })}
              </div>
            ))}

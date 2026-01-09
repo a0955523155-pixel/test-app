@@ -3,7 +3,6 @@ import {
   Loader2, Moon, Sun, LogOut, LayoutDashboard, List 
 } from 'lucide-react';
 
-// --- Firebase 相關引入 ---
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { 
   getAuth, 
@@ -24,10 +23,10 @@ import {
   serverTimestamp, 
   arrayUnion, 
   arrayRemove, 
-  getDocs 
+  getDocs,
+  writeBatch // ★★★ 新增引入 writeBatch
 } from 'firebase/firestore';
 
-// --- 引入模組化設定與工具 ---
 import { 
     appId, 
     ADMIN_CODE, 
@@ -37,10 +36,9 @@ import {
     DEFAULT_LEVELS, 
     DEFAULT_PROJECTS,
     DAILY_QUOTES,
-    SYSTEM_ANNOUNCEMENT // 預設歡迎詞
+    SYSTEM_ANNOUNCEMENT
 } from './config/constants';
 
-// --- 引入 UI 元件 ---
 import LoginScreen from './components/LoginScreen';
 import CustomerForm from './components/CustomerForm';
 import CustomerDetail from './components/CustomerDetail';
@@ -48,7 +46,6 @@ import ClientsView from './components/ClientsView';
 import DashboardView from './components/DashboardView';
 import Marquee from './components/Marquee';
 
-// --- Firebase 設定 ---
 const firebaseConfig = {
   apiKey: "AIzaSyB-0ipmoEDjC98z0l-qM51qTxVWHsTHDls",
   authDomain: "greenshootteam.firebaseapp.com",
@@ -59,7 +56,6 @@ const firebaseConfig = {
   measurementId: "G-CYS5W473VS"
 };
 
-// --- 初始化 Firebase ---
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 const auth = getAuth(app);
 const db = getFirestore(app);
@@ -76,7 +72,6 @@ export default function App() {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState('all');
   
-  // Settings & Dashboard State
   const [companyProjects, setCompanyProjects] = useState(DEFAULT_PROJECTS);
   const [projectAds, setProjectAds] = useState({}); 
   const [appSettings, setAppSettings] = useState({
@@ -85,7 +80,6 @@ export default function App() {
       levels: DEFAULT_LEVELS
   });
 
-  // ★★★ 新增：跑馬燈文字狀態 (預設為常數中的歡迎詞) ★★★
   const [announcement, setAnnouncement] = useState(SYSTEM_ANNOUNCEMENT);
   
   const [dashboardView, setDashboardView] = useState('stats'); 
@@ -96,7 +90,6 @@ export default function App() {
   const [isEditingAd, setIsEditingAd] = useState(false);
   const [pendingDelete, setPendingDelete] = useState(null);
   
-  // Filter States
   const [dashTimeFrame, setDashTimeFrame] = useState('month'); 
   const [listMode, setListMode] = useState('month');
   const [listYear, setListYear] = useState(new Date().getFullYear());
@@ -109,7 +102,6 @@ export default function App() {
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
 
-  // Dark Mode
   const [darkMode, setDarkMode] = useState(() => {
     try { return localStorage.getItem('crm-dark-mode') === 'true'; } catch { return false; }
   });
@@ -132,36 +124,23 @@ export default function App() {
       }
   }, [darkMode]);
 
-  // Load Deals (Firebase)
   useEffect(() => {
       if (!currentUser?.companyCode) return;
-      
       const dealsRef = collection(db, 'artifacts', appId, 'public', 'data', 'deals');
       const q = query(dealsRef, where("companyCode", "==", currentUser.companyCode));
-
       const unsubscribe = onSnapshot(q, (snapshot) => {
           const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
           data.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
           setDeals(data);
-      }, (error) => {
-          console.error("Deals Snapshot Error:", error);
-      });
-
+      }, (error) => { console.error("Deals Snapshot Error:", error); });
       return () => unsubscribe();
   }, [currentUser]);
 
-  // Auth Logic
   useEffect(() => {
     const initAuth = async () => {
-      try {
-        await signInAnonymously(auth);
-      } catch (error) {
-        console.error("Auth Error:", error);
-        setLoading(false); 
-      }
+      try { await signInAnonymously(auth); } catch (error) { setLoading(false); }
     };
     initAuth();
-    
     const unsubscribe = onAuthStateChanged(auth, (u) => {
       setSessionUser(u);
       const savedUser = localStorage.getItem('crm-user-profile');
@@ -183,34 +162,26 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // Fetch Customers
   useEffect(() => {
     if (!sessionUser || !currentUser) return;
     setLoading(true);
-    
     const collectionRef = collection(db, 'artifacts', appId, 'public', 'data', 'customers');
     const q = currentUser.companyCode 
         ? query(collectionRef, where("companyCode", "==", currentUser.companyCode))
         : query(collectionRef); 
-
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       data.sort((a, b) => (b.lastContact || '').localeCompare(a.lastContact || ''));
       setCustomers(data);
       setLoading(false);
-      
       if (selectedCustomer) {
         const updated = data.find(c => c.id === selectedCustomer.id);
         if (updated) setSelectedCustomer(updated);
       }
-    }, (error) => {
-      console.error("Snapshot Error:", error);
-      setLoading(false); 
-    });
+    }, (error) => { console.error("Snapshot Error:", error); setLoading(false); });
     return () => unsubscribe();
   }, [sessionUser, currentUser]);
 
-  // Load Settings
   useEffect(() => {
     if (!currentUser?.companyCode) return;
     const settingsDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'company_settings', currentUser.companyCode);
@@ -219,10 +190,7 @@ export default function App() {
         const data = docSnap.data();
         if (data.projects) setCompanyProjects(data.projects);
         if (data.projectAds) setProjectAds(data.projectAds);
-        
-        // ★★★ 新增：從資料庫讀取跑馬燈文字 ★★★
         if (data.announcement) setAnnouncement(data.announcement);
-        
         setAppSettings({
             sources: data.sources || DEFAULT_SOURCES,
             categories: data.categories || DEFAULT_CATEGORIES,
@@ -230,12 +198,9 @@ export default function App() {
         });
       } else {
         const initData = { 
-            projects: DEFAULT_PROJECTS, 
-            projectAds: {},
-            sources: DEFAULT_SOURCES,
-            categories: DEFAULT_CATEGORIES,
-            levels: DEFAULT_LEVELS,
-            announcement: SYSTEM_ANNOUNCEMENT // 初始化寫入預設值
+            projects: DEFAULT_PROJECTS, projectAds: {},
+            sources: DEFAULT_SOURCES, categories: DEFAULT_CATEGORIES, levels: DEFAULT_LEVELS,
+            announcement: SYSTEM_ANNOUNCEMENT
         };
         setCompanyProjects(DEFAULT_PROJECTS);
         setAppSettings({ sources: DEFAULT_SOURCES, categories: DEFAULT_CATEGORIES, levels: DEFAULT_LEVELS });
@@ -247,7 +212,6 @@ export default function App() {
     return () => unsubscribe();
   }, [currentUser]);
 
-  // Load Users (Super Admin Only)
   useEffect(() => {
       if (currentUser?.role === 'super_admin' && currentUser?.companyCode) {
           const usersRef = collection(db, 'artifacts', appId, 'public', 'data', 'app_users');
@@ -260,7 +224,6 @@ export default function App() {
       }
   }, [currentUser]);
 
-  // --- Handlers ---
   const handleLogout = () => {
     setCurrentUser(null);
     localStorage.removeItem('crm-user-profile');
@@ -354,6 +317,10 @@ export default function App() {
   const handleAddCustomer = async (formData) => {
     if (!currentUser) return;
     try {
+      // 1. 設置 UI 狀態：先切換頁面，讓使用者有反應
+      setView('list'); 
+      setActiveTab('clients');
+      
       const initialLastContact = formData.createdAt || new Date().toISOString().split('T')[0];
       
       const newCustomer = { 
@@ -372,9 +339,6 @@ export default function App() {
 
       await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'customers'), newCustomer);
       
-      setView('list'); 
-      setActiveTab('clients');
-
       // 顯示每日勉勵詞
       try {
           const today = new Date().getDay(); 
@@ -421,6 +385,30 @@ export default function App() {
       }
   };
 
+  // ★★★ 新增：多選刪除功能 ★★★
+  const handleBatchDelete = async (idsToDelete) => {
+      if (!idsToDelete || idsToDelete.length === 0) return;
+      if (!confirm(`確定要永久刪除選取的 ${idsToDelete.length} 筆資料嗎？`)) return;
+
+      setLoading(true);
+      try {
+          // 使用 Batch Write 批次刪除
+          const batch = writeBatch(db);
+          idsToDelete.forEach(id => {
+              const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'customers', id);
+              batch.delete(docRef);
+          });
+          
+          await batch.commit();
+          alert("刪除成功！");
+      } catch (error) {
+          console.error("Batch Delete Error:", error);
+          alert("部分刪除失敗，請檢查權限或網路。");
+      } finally {
+          setLoading(false);
+      }
+  };
+
   const handleEditCustomer = async (formData) => {
     const isSuperAdmin = currentUser.role === 'super_admin';
     if (selectedCustomer.owner !== currentUser.username && !isSuperAdmin) {
@@ -443,7 +431,12 @@ export default function App() {
       }
       Object.keys(updateData).forEach(key => updateData[key] === undefined && delete updateData[key]);
       await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'customers', selectedCustomer.id), updateData);
+      
+      // ★★★ 修正：編輯後回到詳情頁
+      // setView('detail'); 
+      // 這裡維持回到 detail，因為使用者可能想確認修改結果。如果想直接回列表，可改為 setView('list');
       setView('detail');
+
     } catch (err) { console.error(err); alert("儲存失敗"); }
   };
 
@@ -454,7 +447,12 @@ export default function App() {
     }
     try {
        await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'customers', selectedCustomer.id));
-       setShowDeleteModal(false); setView('list');
+       
+       // ★★★ 修正：刪除後強制跳轉回列表並清空選擇
+       setSelectedCustomer(null);
+       setShowDeleteModal(false); 
+       setView('list');
+       
     } catch(err) { console.error(err); }
   };
 
@@ -480,7 +478,6 @@ export default function App() {
       } catch(e) { console.error(e); }
   };
   
-  // ★★★ 新增：儲存跑馬燈文字 ★★★
   const handleSaveAnnouncement = async (text) => {
       if (!currentUser?.companyCode) return;
       try {
@@ -652,7 +649,6 @@ export default function App() {
       }
   };
   
-  // Computed Data
   const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'super_admin';
   const isSuperAdmin = currentUser?.role === 'super_admin';
   
@@ -753,7 +749,6 @@ export default function App() {
       setTimeout(() => { alert("匯出功能已觸發"); setIsExporting(false); setShowExportMenu(false); }, 1000);
   };
 
-  // --- Render ---
   if (loading) return <div className="min-h-screen flex items-center justify-center bg-gray-100 dark:bg-slate-950"><Loader2 className="w-8 h-8 animate-spin text-blue-600" /></div>;
 
   if (view === 'login') return <LoginScreen onLogin={handleLogin} onRegister={handleRegister} loading={loading} darkMode={darkMode} />;
@@ -767,7 +762,6 @@ export default function App() {
   return (
     <div className={`min-h-screen w-full transition-colors duration-300 ${darkMode ? 'dark bg-slate-950 text-slate-100' : 'bg-gray-50 text-gray-800'} overflow-x-hidden`} style={{ colorScheme: darkMode ? 'dark' : 'light' }}>
       
-      {/* ★★★ 傳遞文字給跑馬燈 ★★★ */}
       {view === 'list' && <Marquee text={announcement} darkMode={darkMode} />}
 
       {activeTab === 'clients' ? (
@@ -778,6 +772,8 @@ export default function App() {
             loading={loading} visibleCustomers={visibleCustomers} isAdmin={isAdmin} groupedCustomers={groupedCustomers} myCustomers={myCustomers}
             setView={setView} setSelectedCustomer={setSelectedCustomer}
             onImport={handleBatchImport}
+            // ★★★ 新增：傳遞多選刪除函式
+            onBatchDelete={handleBatchDelete}
           />
       ) : (
           <DashboardView 
@@ -797,7 +793,6 @@ export default function App() {
             statYear={statYear} setStatYear={setStatYear} statMonth={statMonth} setStatMonth={setStatMonth}
             onSaveAd={handleSaveAd} onEditAdInit={handleEditAdInit} triggerDeleteAd={triggerDeleteAd}
             onEditAd={handleEditAdFromDashboard} onDeleteAd={handleDeleteAdFromDashboard}
-            // ★★★ 傳遞跑馬燈控制 ★★★
             announcement={announcement} onSaveAnnouncement={handleSaveAnnouncement}
           />
       )}
