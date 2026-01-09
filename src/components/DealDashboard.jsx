@@ -168,16 +168,13 @@ const DealDashboard = ({ deals, allUsers, companyProjects, darkMode, onSave, onD
                             <h5 className="font-bold text-yellow-700 dark:text-yellow-500 mb-3 flex items-center gap-2"><PieChart className="w-4 h-4"/> 業績分配</h5>
                             
                             <div className="mb-4 flex flex-wrap gap-4">
+                                {/* ★★★ 修正：移除「公司抽成」顯示，只顯示開發池與銷售池，並隱藏 % 數顯示 ★★★ */}
                                 <div className="flex-1 min-w-[140px]">
-                                    <label className="text-xs font-bold text-gray-500 block mb-1">公司抽成 ({COMMISSION_RATES.COMPANY * 100}%)</label>
-                                    <div className="font-mono text-lg font-bold text-gray-600 dark:text-gray-300 bg-gray-100 dark:bg-slate-800 px-3 py-1 rounded">${formData.companySplit.toLocaleString()}</div>
-                                </div>
-                                <div className="flex-1 min-w-[140px]">
-                                    <label className="text-xs font-bold text-blue-600 block mb-1">開發池 (剩餘之{COMMISSION_RATES.DEV_POOL * 100}%)</label>
+                                    <label className="text-xs font-bold text-blue-600 block mb-1">開發池</label>
                                     <div className="font-mono text-lg font-bold text-blue-600 bg-blue-50 dark:bg-blue-900/20 px-3 py-1 rounded">${devPool.toLocaleString()}</div>
                                 </div>
                                 <div className="flex-1 min-w-[140px]">
-                                    <label className="text-xs font-bold text-green-600 block mb-1">銷售池 (剩餘之{COMMISSION_RATES.SALES_POOL * 100}%)</label>
+                                    <label className="text-xs font-bold text-green-600 block mb-1">銷售池</label>
                                     <div className="font-mono text-lg font-bold text-green-600 bg-green-50 dark:bg-green-900/20 px-3 py-1 rounded">${salesPool.toLocaleString()}</div>
                                 </div>
                             </div>
@@ -260,7 +257,6 @@ const DealDashboard = ({ deals, allUsers, companyProjects, darkMode, onSave, onD
                                     <p><span className="text-gray-400 text-xs mr-1">{deal.type==='sale'?'買':'承租'}:</span> {deal.partyA_name} <span className="text-gray-400 text-xs">({deal.partyA_phone})</span></p>
                                     <p><span className="text-gray-400 text-xs mr-1">{deal.type==='sale'?'賣':'出租'}:</span> {deal.partyB_name} <span className="text-gray-400 text-xs">({deal.partyB_phone})</span></p>
                                 </div>
-                                {/* 顯示參與人員 */}
                                 <div className="mt-2 text-xs bg-gray-100 dark:bg-slate-700 p-1.5 rounded text-gray-600 dark:text-gray-300">
                                     <span className="font-bold text-gray-500 mr-1">參與:</span>
                                     {agentName}
