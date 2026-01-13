@@ -24,7 +24,7 @@ import {
   arrayUnion, 
   arrayRemove, 
   getDocs,
-  writeBatch // ★★★ 新增引入 writeBatch
+  writeBatch
 } from 'firebase/firestore';
 
 import { 
@@ -317,7 +317,6 @@ export default function App() {
   const handleAddCustomer = async (formData) => {
     if (!currentUser) return;
     try {
-      // 1. 設置 UI 狀態：先切換頁面，讓使用者有反應
       setView('list'); 
       setActiveTab('clients');
       
@@ -339,7 +338,6 @@ export default function App() {
 
       await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'customers'), newCustomer);
       
-      // 顯示每日勉勵詞
       try {
           const today = new Date().getDay(); 
           const quotes = (typeof DAILY_QUOTES !== 'undefined' && Array.isArray(DAILY_QUOTES)) 
@@ -361,38 +359,58 @@ export default function App() {
   const handleBatchImport = async (importedData) => {
       if (!currentUser) return;
       setLoading(true);
+      
       try {
           const batchPromises = importedData.map(data => {
-              return addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'customers'), {
+              
+              const safeDate = (val) => {
+                  if (!val) return new Date(); 
+                  let d = new Date(val);
+                  if (isNaN(d.getTime()) || d.getFullYear() > 3000 || d.getFullYear() < 1900) {
+                      return new Date(); 
+                  }
+                  return d;
+              };
+
+              const cleanData = {
                   ...data,
                   owner: currentUser.username, 
                   ownerName: currentUser.name, 
                   companyCode: currentUser.companyCode,
-                  createdAt: data.createdAt ? new Date(data.createdAt) : new Date(),
-                  lastContact: data.createdAt || new Date().toISOString().split('T')[0],
+                  createdAt: safeDate(data.createdAt),
+                  lastContact: typeof data.lastContact === 'string' 
+                      ? data.lastContact 
+                      : safeDate(data.createdAt).toISOString().split('T')[0],
                   notes: [],
                   value: data.value ? Number(String(data.value).replace(/,/g, '')) : 0
+              };
+
+              Object.keys(cleanData).forEach(key => {
+                  if (cleanData[key] === undefined) {
+                      delete cleanData[key];
+                  }
               });
+
+              return addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'customers'), cleanData);
           });
           
           await Promise.all(batchPromises);
           alert(`成功匯入 ${importedData.length} 筆客戶資料！`);
+
       } catch (error) {
           console.error("Batch Import Error:", error);
-          alert("匯入過程中發生錯誤，部分資料可能未儲存。");
+          alert(`匯入失敗：${error.message}\n(可能是日期格式問題，系統已嘗試自動修復但失敗)`);
       } finally {
           setLoading(false);
       }
   };
 
-  // ★★★ 新增：多選刪除功能 ★★★
   const handleBatchDelete = async (idsToDelete) => {
       if (!idsToDelete || idsToDelete.length === 0) return;
       if (!confirm(`確定要永久刪除選取的 ${idsToDelete.length} 筆資料嗎？`)) return;
 
       setLoading(true);
       try {
-          // 使用 Batch Write 批次刪除
           const batch = writeBatch(db);
           idsToDelete.forEach(id => {
               const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'customers', id);
@@ -417,24 +435,23 @@ export default function App() {
     try {
       const { id, ...rest } = formData;
       const updateData = { ...rest };
+      
       if (updateData.createdAt) {
           const dateObj = new Date(updateData.createdAt);
           if (!isNaN(dateObj.getTime())) {
               updateData.createdAt = dateObj;
-              if (!selectedCustomer.notes || selectedCustomer.notes.length === 0) {
-                  const y = dateObj.getFullYear();
-                  const m = String(dateObj.getMonth() + 1).padStart(2, '0');
-                  const d = String(dateObj.getDate()).padStart(2, '0');
-                  updateData.lastContact = `${y}-${m}-${d}`;
-              }
-          } else { delete updateData.createdAt; }
+              const y = dateObj.getFullYear();
+              const m = String(dateObj.getMonth() + 1).padStart(2, '0');
+              const d = String(dateObj.getDate()).padStart(2, '0');
+              updateData.lastContact = `${y}-${m}-${d}`;
+          } else { 
+              delete updateData.createdAt; 
+          }
       }
+      
       Object.keys(updateData).forEach(key => updateData[key] === undefined && delete updateData[key]);
       await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'customers', selectedCustomer.id), updateData);
       
-      // ★★★ 修正：編輯後回到詳情頁
-      // setView('detail'); 
-      // 這裡維持回到 detail，因為使用者可能想確認修改結果。如果想直接回列表，可改為 setView('list');
       setView('detail');
 
     } catch (err) { console.error(err); alert("儲存失敗"); }
@@ -447,19 +464,26 @@ export default function App() {
     }
     try {
        await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'customers', selectedCustomer.id));
-       
-       // ★★★ 修正：刪除後強制跳轉回列表並清空選擇
        setSelectedCustomer(null);
        setShowDeleteModal(false); 
        setView('list');
-       
     } catch(err) { console.error(err); }
   };
 
   const handleAddNote = async (customerId, noteContent) => {
     try {
-      const newNote = { id: Date.now(), date: new Date().toISOString().split('T')[0], content: noteContent, author: currentUser.name };
-      await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'customers', customerId), { notes: arrayUnion(newNote), lastContact: newNote.date });
+      const today = new Date().toISOString().split('T')[0];
+      const newNote = { 
+          id: Date.now(), 
+          date: today, 
+          content: noteContent, 
+          author: currentUser.name 
+      };
+      
+      await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'customers', customerId), { 
+          notes: arrayUnion(newNote), 
+          lastContact: today 
+      });
     } catch (err) { console.error(err); }
   };
 
@@ -652,40 +676,8 @@ export default function App() {
   const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'super_admin';
   const isSuperAdmin = currentUser?.role === 'super_admin';
   
-  const visibleCustomers = useMemo(() => {
-      let base = customers;
-      if (!isAdmin) base = base.filter(c => c.owner === currentUser?.username);
-      if (searchTerm.trim()) {
-          const term = searchTerm.toLowerCase();
-          base = base.filter(c => 
-            (c.name?.toLowerCase().includes(term) || 
-             c.company?.toLowerCase().includes(term) || 
-             c.ownerName?.toLowerCase().includes(term) || 
-             c.project?.toLowerCase().includes(term))
-          );
-      } else {
-          if (listMode !== 'all') {
-             base = base.filter(c => {
-                 return true; 
-             });
-          }
-      }
-      return base.filter(c => filterStatus === 'all' || c.status === filterStatus);
-  }, [customers, isAdmin, currentUser, searchTerm, filterStatus, listMode]);
-
-  const groupedCustomers = useMemo(() => {
-      if (!isAdmin) return null;
-      const groups = {};
-      visibleCustomers.forEach(c => {
-          const owner = c.ownerName || c.owner || '未知業務';
-          if (!groups[owner]) groups[owner] = [];
-          groups[owner].push(c);
-      });
-      return groups;
-  }, [visibleCustomers, isAdmin]);
-  
-  const myCustomers = useMemo(() => !isAdmin ? visibleCustomers : [], [visibleCustomers, isAdmin]);
-
+  // App.jsx 中的 visibleCustomers / groupedCustomers 邏輯已移至 ClientsView
+  // 這裡只負責 Dashboard 統計
   const dashboardStats = useMemo(() => {
       let totalRevenue = 0;
       let won = 0;
@@ -766,13 +758,15 @@ export default function App() {
 
       {activeTab === 'clients' ? (
           <ClientsView 
+            // ★★★ 關鍵修正：這裡原本傳的是 visibleCustomers (空)，現在改傳 customers (原始資料) ★★★
+            customers={customers}
+            
             currentUser={currentUser} darkMode={darkMode} toggleDarkMode={toggleDarkMode} handleLogout={handleLogout}
             listMode={listMode} setListMode={setListMode} listYear={listYear} setListYear={setListYear} listMonth={listMonth} setListMonth={setListMonth} listWeekDate={listWeekDate} setListWeekDate={setListWeekDate}
             searchTerm={searchTerm} setSearchTerm={setSearchTerm}
-            loading={loading} visibleCustomers={visibleCustomers} isAdmin={isAdmin} groupedCustomers={groupedCustomers} myCustomers={myCustomers}
+            loading={loading} isAdmin={isAdmin}
             setView={setView} setSelectedCustomer={setSelectedCustomer}
             onImport={handleBatchImport}
-            // ★★★ 新增：傳遞多選刪除函式
             onBatchDelete={handleBatchDelete}
           />
       ) : (
