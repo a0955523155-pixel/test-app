@@ -1,10 +1,13 @@
 import { Users, UserPlus, Phone, FileSignature, CheckCircle, XCircle } from 'lucide-react';
 
+// ★★★ 補回缺少的 APP_NAME ★★★
+export const APP_NAME = '客戶追蹤系統';
+
 export const appId = 'greenshoot_crm_v1';
 
-// ★★★ 修改後的註冊碼 ★★★
+// 註冊碼設定
 export const ADMIN_CODE = '77777777';       // 行政及管理員
-export const SUPER_ADMIN_CODE = '27650879'; // 經營者 (Super Admin)
+export const SUPER_ADMIN_CODE = '27650879'; // 經營者
 
 // --- 預設選項 ---
 export const DEFAULT_SOURCES = ["網路廣告", "路過客", "介紹", "同業", "舊客"];
@@ -32,8 +35,8 @@ export const STATUS_CONFIG = {
 // --- 成交報告設定 (參數) ---
 export const COMMISSION_RATES = {
     COMPANY: 0.10, // 公司抽成 10%
-    DEV_POOL: 0.40, // 開發池 40% (剩餘金額的)
-    SALES_POOL: 0.60 // 銷售池 60% (剩餘金額的)
+    DEV_POOL: 0.40, // 開發池 40%
+    SALES_POOL: 0.60 // 銷售池 60%
 };
 
 // --- 每日勉勵詞 (隨機顯示) ---
