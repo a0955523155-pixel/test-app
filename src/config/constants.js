@@ -4,7 +4,7 @@ export const appId = 'greenshoot_crm_v1';
 
 // ★★★ 修改後的註冊碼 ★★★
 export const ADMIN_CODE = '77777777';       // 行政及管理員
-export const SUPER_ADMIN_CODE = '123654'; // 經營者 (Super Admin)
+export const SUPER_ADMIN_CODE = '27650879'; // 經營者 (Super Admin)
 
 // --- 預設選項 ---
 export const DEFAULT_SOURCES = ["網路廣告", "路過客", "介紹", "同業", "舊客"];
