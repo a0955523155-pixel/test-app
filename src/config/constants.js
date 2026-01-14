@@ -1,9 +1,9 @@
 import { Users, UserPlus, Phone, FileSignature, CheckCircle, XCircle } from 'lucide-react';
 
-// ★★★ 補回缺少的 APP_NAME ★★★
 export const APP_NAME = '客戶追蹤系統';
 
-export const appId = 'greenshoot_crm_v1';
+// ★★★ 修正這裡：改回您舊的資料庫目錄名稱 ★★★
+export const appId = 'greenshootteam'; 
 
 // 註冊碼設定
 export const ADMIN_CODE = '77777777';       // 行政及管理員
