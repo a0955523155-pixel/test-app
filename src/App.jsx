@@ -144,7 +144,8 @@ export default function App() {
   const [appSettings, setAppSettings] = useState({
       sources: DEFAULT_SOURCES,
       categories: DEFAULT_CATEGORIES,
-      levels: DEFAULT_LEVELS
+      levels: DEFAULT_LEVELS,
+      scriveners: [] 
   });
 
   const [announcement, setAnnouncement] = useState(SYSTEM_ANNOUNCEMENT);
@@ -191,7 +192,7 @@ export default function App() {
       }
   }, [darkMode]);
 
-  // ★★★ 通知檢查邏輯 ★★★
+  // Notifications logic
   useEffect(() => {
       if (!customers || customers.length === 0 || !currentUser) return;
       const today = new Date();
@@ -199,7 +200,6 @@ export default function App() {
 
       customers.forEach(c => {
           if (c.owner === currentUser.username) {
-              // 1. 委託到期
               if (['賣方', '出租', '出租方'].includes(c.category) && c.commissionEndDate && !c.isRenewed) {
                   const endDate = new Date(c.commissionEndDate);
                   const diffDays = Math.ceil((endDate - today) / (86400000));
@@ -207,7 +207,6 @@ export default function App() {
                       tempNotifications.push({ id: c.id, name: c.name || c.caseName, category: c.category, type: 'commission', date: c.commissionEndDate, days: diffDays });
                   }
               }
-              // 2. 代書款項 (陣列)
               if (c.scribeDetails && Array.isArray(c.scribeDetails)) {
                   c.scribeDetails.forEach((item, index) => {
                       if (item.payDate && !item.isPaid) {
@@ -227,7 +226,6 @@ export default function App() {
       setNotifications(tempNotifications);
   }, [customers, currentUser]);
 
-  // ★★★ 快速更新狀態 ★★★
   const handleQuickUpdate = async (notiItem) => {
       try {
           if (notiItem.type === 'commission') {
@@ -318,12 +316,17 @@ export default function App() {
         setAppSettings({
             sources: data.sources || DEFAULT_SOURCES,
             categories: data.categories || DEFAULT_CATEGORIES,
-            levels: data.levels || DEFAULT_LEVELS
+            levels: data.levels || DEFAULT_LEVELS,
+            scriveners: data.scriveners || [] // 載入代書資料
         });
       } else {
-        const initData = { projects: DEFAULT_PROJECTS, projectAds: {}, sources: DEFAULT_SOURCES, categories: DEFAULT_CATEGORIES, levels: DEFAULT_LEVELS, announcement: SYSTEM_ANNOUNCEMENT };
+        const initData = { 
+            projects: DEFAULT_PROJECTS, projectAds: {}, 
+            sources: DEFAULT_SOURCES, categories: DEFAULT_CATEGORIES, levels: DEFAULT_LEVELS, 
+            announcement: SYSTEM_ANNOUNCEMENT, scriveners: []
+        };
         setCompanyProjects(DEFAULT_PROJECTS);
-        setAppSettings({ sources: DEFAULT_SOURCES, categories: DEFAULT_CATEGORIES, levels: DEFAULT_LEVELS });
+        setAppSettings({ sources: DEFAULT_SOURCES, categories: DEFAULT_CATEGORIES, levels: DEFAULT_LEVELS, scriveners: [] });
         setProjectAds({});
         setAnnouncement(SYSTEM_ANNOUNCEMENT);
         setDoc(settingsDocRef, initData, { merge: true });
@@ -479,9 +482,22 @@ export default function App() {
   const handleAddNote = async (id, content) => { try { const today = new Date().toISOString().split('T')[0]; await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'customers', id), { notes: arrayUnion({id:Date.now(), date:today, content, author:currentUser.name}), lastContact: today }); } catch(e){} };
   const handleDeleteNote = async (id, note) => { try { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'customers', id), { notes: arrayRemove(note) }); } catch(e){} };
   
+  // ★★★ 儲存設定 (傳給 DashboardView 使用) ★★★
   const saveAppSettings = async (s) => { if(!currentUser?.companyCode)return; try{ await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'company_settings', currentUser.companyCode), s, {merge:true}); }catch(e){} };
+  
   const handleSaveAnnouncement = async (t) => { if(!currentUser?.companyCode)return; try{ await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'company_settings', currentUser.companyCode), {announcement:t}, {merge:true}); alert("更新成功"); }catch(e){} };
-  const handleAddOption = (type, val) => { if(!val || appSettings[type].includes(val))return; const u=[...appSettings[type],val]; setAppSettings({...appSettings,[type]:u}); saveAppSettings({[type]:u}); };
+  const handleAddOption = (type, val) => { 
+      // 支援傳入整個陣列 (如 scriveners)
+      if (Array.isArray(val) && type === 'scriveners') {
+          setAppSettings({...appSettings, [type]: val});
+          saveAppSettings({[type]: val});
+          return;
+      }
+      if(!val || appSettings[type].includes(val))return; 
+      const u=[...appSettings[type],val]; 
+      setAppSettings({...appSettings,[type]:u}); 
+      saveAppSettings({[type]:u}); 
+  };
   const handleDeleteOption = (type, opt) => { const u=appSettings[type].filter(i=>i!==opt); setAppSettings({...appSettings,[type]:u}); saveAppSettings({[type]:u}); };
   const handleReorderOption = (type, f, t) => { const l=[...appSettings[type]]; const [r]=l.splice(f,1); l.splice(t,0,r); setAppSettings({...appSettings,[type]:l}); saveAppSettings({[type]:l}); };
   
@@ -503,8 +519,66 @@ export default function App() {
   const handleSaveDeal = async (dealData) => { try{ const id=dealData.id||Date.now().toString(); let ag=dealData.agentName||(dealData.distributions?.[0]?.agentName)||(allUsers.find(u=>u.username===dealData.agent)?.name)||dealData.agent||currentUser?.name||"未知"; const n={...dealData,id,createdAt:dealData.createdAt||new Date().toISOString(),companyCode:currentUser.companyCode,agentName:ag}; await setDoc(doc(db,'artifacts',appId,'public','data','deals',id),n,{merge:true}); alert("已儲存"); }catch(e){alert("失敗");} };
   const handleDeleteDeal = async (id) => { if(!confirm("刪除？"))return; try{await deleteDoc(doc(db,'artifacts',appId,'public','data','deals',id))}catch(e){} };
 
-  const dashboardStats = useMemo(() => { let t=0,w=0; deals.forEach(d=>{ const y=new Date(d.date).getFullYear(), m=new Date(d.date).getMonth()+1; let i=false; if(dashTimeFrame==='all')i=true; else if(dashTimeFrame==='year')i=y===statYear; else if(dashTimeFrame==='month')i=y===statYear&&m===statMonth; if(i){t+=(Number(d.commission)||0);w++;} }); return {totalRevenue:t, counts:{total:customers.length,won:w}}; }, [customers,deals,dashTimeFrame,statYear,statMonth]);
-  const agentStats = useMemo(() => { const map={}; customers.forEach(c=>{ const a=c.ownerName||c.owner||'未知'; if(!map[a])map[a]={name:a,total:0,new:0,contacting:0,offer:0,closed:0,lost:0,commission:0}; map[a].total++; if(map[a][c.status]!==undefined)map[a][c.status]++; }); deals.forEach(d=>{ const y=new Date(d.date).getFullYear(), m=new Date(d.date).getMonth()+1; let i=false; if(dashTimeFrame==='all')i=true; else if(dashTimeFrame==='year')i=y===statYear; else if(dashTimeFrame==='month')i=y===statYear&&m===statMonth; if(i){ const amt=Number(d.commission)||0; if(d.distributions?.length>0)d.distributions.forEach(dist=>{ const an=dist.agentName||dist.userId; if(!map[an])map[an]={name:an,total:0,new:0,contacting:0,offer:0,closed:0,lost:0,commission:0}; map[an].commission+=Number(dist.amount)||0; }); else { const an=d.agentName||'未知'; if(!map[an])map[an]={name:an,total:0,new:0,contacting:0,offer:0,closed:0,lost:0,commission:0}; map[an].commission+=amt; } } }); return Object.values(map).sort((a,b)=>b.commission-a.commission); }, [customers,deals,dashTimeFrame,statYear,statMonth,allUsers]);
+  // ★★★ 數據統計邏輯修正 (處理逗號與日期) ★★★
+  const dashboardStats = useMemo(() => { 
+      let t=0, w=0; 
+      deals.forEach(d=>{ 
+          const dateRef = new Date(d.signDate || d.dealDate); 
+          const y=dateRef.getFullYear(), m=dateRef.getMonth()+1; 
+          let i=false; 
+          if(dashTimeFrame==='all')i=true; 
+          else if(dashTimeFrame==='year')i=y===statYear; 
+          else if(dashTimeFrame==='month')i=y===statYear&&m===statMonth; 
+          if(i){
+              // ★ 移除逗號後再轉數字
+              const sub = parseFloat(String(d.subtotal).replace(/,/g, '')) || 0;
+              t += sub;
+              w++;
+          } 
+      }); 
+      return {totalRevenue:t, counts:{total:customers.length,won:w}}; 
+  }, [customers,deals,dashTimeFrame,statYear,statMonth]);
+
+  const agentStats = useMemo(() => { 
+      const map={}; 
+      allUsers.forEach(u => map[u.name] = { name: u.name, total: 0, commission: 0 });
+
+      deals.forEach(d => { 
+         const dateRef = new Date(d.signDate || d.dealDate); 
+         const y=dateRef.getFullYear(), m=dateRef.getMonth()+1; 
+         let i=false; 
+         if(dashTimeFrame==='all')i=true; 
+         else if(dashTimeFrame==='year')i=y===statYear; 
+         else if(dashTimeFrame==='month')i=y===statYear&&m===statMonth; 
+         
+         if(i) {
+             if (d.devAgents && Array.isArray(d.devAgents)) {
+                 d.devAgents.forEach(ag => {
+                     if (ag.user) {
+                         if (!map[ag.user]) map[ag.user] = { name: ag.user, total: 0, commission: 0 };
+                         // ★ 移除逗號
+                         const amt = parseFloat(String(ag.amount).replace(/,/g, '')) || 0;
+                         map[ag.user].commission += amt;
+                         map[ag.user].total += 1;
+                     }
+                 });
+             }
+             if (d.salesAgents && Array.isArray(d.salesAgents)) {
+                 d.salesAgents.forEach(ag => {
+                     if (ag.user) {
+                         if (!map[ag.user]) map[ag.user] = { name: ag.user, total: 0, commission: 0 };
+                         // ★ 移除逗號
+                         const amt = parseFloat(String(ag.amount).replace(/,/g, '')) || 0;
+                         map[ag.user].commission += amt;
+                         map[ag.user].total += 1; 
+                     }
+                 });
+             }
+         }
+      });
+      return Object.values(map).sort((a,b) => b.commission - a.commission).filter(a => a.commission > 0); 
+  }, [deals, dashTimeFrame, statYear, statMonth, allUsers]);
+
   const handleExportExcel = () => { setIsExporting(true); setTimeout(()=>{ alert("匯出功能已觸發"); setIsExporting(false); setShowExportMenu(false); },1000); };
 
   if (loading) return <div className="min-h-screen flex items-center justify-center bg-gray-100 dark:bg-slate-950"><Loader2 className="w-8 h-8 animate-spin text-blue-600" /></div>;
@@ -518,15 +592,25 @@ export default function App() {
       {incomingBroadcast && <BroadcastOverlay data={incomingBroadcast} isPresenter={myBroadcastStatus} onClose={handleOverlayClose} />}
       <NotificationModal notifications={notifications} onClose={() => setNotifications([])} onQuickUpdate={handleQuickUpdate} />
       {view === 'list' && <Marquee text={announcement} darkMode={darkMode} />}
-      {activeTab === 'clients' ? <ClientsView customers={customers} currentUser={currentUser} darkMode={darkMode} toggleDarkMode={toggleDarkMode} handleLogout={handleLogout} listMode={listMode} setListMode={setListMode} listYear={listYear} setListYear={setListYear} listMonth={listMonth} setListMonth={setListMonth} listWeekDate={listWeekDate} setListWeekDate={setListWeekDate} searchTerm={searchTerm} setSearchTerm={setSearchTerm} loading={loading} isAdmin={isAdmin} setView={setView} setSelectedCustomer={setSelectedCustomer} onImport={handleBatchImport} onBatchDelete={handleBatchDelete} onBroadcast={handleBroadcast} /> : 
-        <DashboardView customers={customers} isAdmin={isAdmin} isSuperAdmin={isSuperAdmin} currentUser={currentUser} darkMode={darkMode} toggleDarkMode={toggleDarkMode} handleLogout={handleLogout} dashboardStats={dashboardStats} dashTimeFrame={dashTimeFrame} setDashTimeFrame={setDashTimeFrame} agentStats={agentStats} companyProjects={companyProjects} projectAds={projectAds} allUsers={allUsers} newRegionName={newRegionName} setNewRegionName={setNewRegionName} newProjectNames={newProjectNames} setNewProjectNames={setNewProjectNames} onAddRegion={handleAddRegion} onDeleteRegion={handleDeleteRegion} onAddProject={handleAddProject} onDeleteProject={handleDeleteProject} onToggleUser={toggleUserStatus} onDeleteUser={handleDeleteUser} onManageAd={setAdManageProject} adManageProject={adManageProject} setAdManageProject={setAdManageProject} adForm={adForm} setAdForm={setAdForm} isEditingAd={isEditingAd} setIsEditingAd={setIsEditingAd} dashboardView={dashboardView} setDashboardView={setDashboardView} handleExportExcel={handleExportExcel} isExporting={isExporting} showExportMenu={showExportMenu} setShowExportMenu={setShowExportMenu} appSettings={appSettings} onAddOption={handleAddOption} onDeleteOption={handleDeleteOption} onReorderOption={handleReorderOption} deals={deals} handleSaveDeal={handleSaveDeal} handleDeleteDeal={handleDeleteDeal} statYear={statYear} setStatYear={setStatYear} statMonth={statMonth} setStatMonth={setStatMonth} onSaveAd={handleSaveAd} onEditAdInit={handleEditAdInit} triggerDeleteAd={triggerDeleteAd} onEditAd={handleEditAdFromDashboard} onDeleteAd={handleDeleteAdFromDashboard} announcement={announcement} onSaveAnnouncement={handleSaveAnnouncement} />
+      {activeTab === 'clients' ? 
+        /* ★★★ 傳遞 companyProjects ★★★ */
+        <ClientsView 
+            companyProjects={companyProjects}
+            customers={customers} currentUser={currentUser} darkMode={darkMode} toggleDarkMode={toggleDarkMode} handleLogout={handleLogout} listMode={listMode} setListMode={setListMode} listYear={listYear} setListYear={setListYear} listMonth={listMonth} setListMonth={setListMonth} listWeekDate={listWeekDate} setListWeekDate={setListWeekDate} searchTerm={searchTerm} setSearchTerm={setSearchTerm} loading={loading} isAdmin={isAdmin} setView={setView} setSelectedCustomer={setSelectedCustomer} onImport={handleBatchImport} onBatchDelete={handleBatchDelete} onBroadcast={handleBroadcast} 
+        /> 
+        : 
+        <DashboardView 
+            saveSettings={saveSettingsToFirestore}
+            customers={customers}
+            isAdmin={isAdmin} isSuperAdmin={isSuperAdmin} currentUser={currentUser} darkMode={darkMode} toggleDarkMode={toggleDarkMode} handleLogout={handleLogout} dashboardStats={dashboardStats} dashTimeFrame={dashTimeFrame} setDashTimeFrame={setDashTimeFrame} agentStats={agentStats} companyProjects={companyProjects} projectAds={projectAds} allUsers={allUsers} newRegionName={newRegionName} setNewRegionName={setNewRegionName} newProjectNames={newProjectNames} setNewProjectNames={setNewProjectNames} onAddRegion={handleAddRegion} onDeleteRegion={handleDeleteRegion} onAddProject={handleAddProject} onDeleteProject={handleDeleteProject} onToggleUser={toggleUserStatus} onDeleteUser={handleDeleteUser} onManageAd={setAdManageProject} adManageProject={adManageProject} setAdManageProject={setAdManageProject} adForm={adForm} setAdForm={setAdForm} isEditingAd={isEditingAd} setIsEditingAd={setIsEditingAd} dashboardView={dashboardView} setDashboardView={setDashboardView} handleExportExcel={handleExportExcel} isExporting={isExporting} showExportMenu={showExportMenu} setShowExportMenu={setShowExportMenu} appSettings={appSettings} onAddOption={handleAddOption} onDeleteOption={handleDeleteOption} onReorderOption={handleReorderOption} deals={deals} handleSaveDeal={handleSaveDeal} handleDeleteDeal={handleDeleteDeal} statYear={statYear} setStatYear={setStatYear} statMonth={statMonth} setStatMonth={setStatMonth} onSaveAd={handleSaveAd} onEditAdInit={handleEditAdInit} triggerDeleteAd={triggerDeleteAd} onEditAd={handleEditAdFromDashboard} onDeleteAd={handleDeleteAdFromDashboard} announcement={announcement} onSaveAnnouncement={handleSaveAnnouncement} 
+        />
       }
       <div className={`fixed bottom-0 w-full border-t flex justify-around items-center py-2 z-40 shadow-lg ${darkMode ? 'bg-slate-950 border-slate-800' : 'bg-white border-gray-200'}`}>
         <button onClick={() => setActiveTab('clients')} className={`flex flex-col items-center p-2 w-24 active:scale-95 transition-transform ${activeTab === 'clients' ? 'text-blue-500 font-bold' : 'text-gray-400'}`}><List className="w-6 h-6"/><span className="text-[10px] mt-1">列表</span></button>
         {isAdmin && <button onClick={() => setActiveTab('dashboard')} className={`flex flex-col items-center p-2 w-24 active:scale-95 transition-transform ${activeTab === 'dashboard' ? 'text-blue-500 font-bold' : 'text-gray-400'}`}><LayoutDashboard className="w-6 h-6"/><span className="text-[10px] mt-1">後台</span></button>}
       </div>
       {pendingDelete && <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[70] flex items-center justify-center p-4"><div className={`w-full max-w-sm p-6 rounded-2xl shadow-2xl transform transition-all ${darkMode ? 'bg-slate-900 text-white' : 'bg-white'}`}><div className="flex items-center gap-3 mb-4 text-red-500"><div className="p-2 bg-red-100 dark:bg-red-900/30 rounded-full"><div className="w-6 h-6 text-red-600">⚠️</div></div><h3 className="text-lg font-bold">確認刪除</h3></div><p className="text-sm opacity-80 mb-6 leading-relaxed">確定要刪除嗎？<br/><span className="text-red-500 font-bold text-xs mt-1 block font-bold">此操作無法復原。</span></p><div className="flex gap-3"><button onClick={() => setPendingDelete(null)} className="flex-1 py-3 rounded-xl font-bold bg-gray-100 dark:bg-slate-800 text-gray-600 dark:text-slate-300 hover:bg-gray-200 transition-colors">取消</button><button onClick={executeDelete} className="flex-1 py-3 rounded-xl font-bold bg-red-600 text-white hover:bg-red-700 shadow-lg shadow-red-600/30 transition-all active:scale-95">確認刪除</button></div></div></div>}
-      {adManageProject && <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4"><div className={`w-full max-w-md p-6 rounded-2xl shadow-2xl transform transition-all max-h-[85vh] overflow-y-auto ${darkMode ? 'bg-slate-900 text-white' : 'bg-white'}`}><div className="flex justify-between items-center mb-4 border-b dark:border-slate-800 pb-3"><h3 className="text-lg font-bold flex items-center gap-2">管理廣告: {adManageProject}</h3><button onClick={() => { setAdManageProject(null); setIsEditingAd(false); }} className="p-1 hover:bg-gray-100 dark:hover:bg-slate-800 rounded-full"><X/></button></div><div className="space-y-3 mb-6 bg-gray-50 dark:bg-slate-800/50 p-4 rounded-xl border border-gray-100 dark:border-slate-800"><input value={adForm.name} onChange={(e) => setAdForm({...adForm, name: e.target.value})} className={`w-full px-3 py-2 rounded-lg border text-sm outline-none notranslate ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300 text-gray-900'}`} placeholder="廣告名稱" autoComplete="off" /><div className="flex gap-2"><input type="date" value={adForm.startDate} onChange={(e) => setAdForm({...adForm, startDate: e.target.value})} className={`flex-1 px-3 py-2 rounded-lg border text-sm outline-none transition-colors ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300 text-gray-900'}`} /><input type="date" value={adForm.endDate} onChange={(e) => setAdForm({...adForm, endDate: e.target.value})} className={`flex-1 px-3 py-2 rounded-lg border text-sm outline-none transition-colors ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300 text-gray-900'}`} /></div><button onClick={handleSaveAd} className="w-full bg-blue-600 text-white py-2 rounded-lg text-sm font-bold active:scale-95 transition-all shadow-md shadow-blue-600/20">{isEditingAd ? '儲存變更' : '新增廣告'}</button></div><div className="space-y-2">{(projectAds[adManageProject] || []).map((ad, idx) => { const adObj = typeof ad === 'string' ? { id: idx, name: ad, endDate: '' } : ad; return (<div key={adObj.id || idx} className="flex justify-between items-center p-3 rounded-lg border dark:border-slate-800 text-sm hover:border-blue-300 transition-colors"><div><span className="font-bold block">{adObj.name}</span></div><div className="flex gap-1"><button onClick={() => handleEditAdInit(ad)} className="p-2 text-blue-500 hover:bg-blue-50 dark:hover:bg-slate-800 rounded-full">✏️</button><button onClick={() => triggerDeleteAd(adObj)} className="p-2 text-red-500 hover:bg-red-50 dark:hover:bg-slate-800 rounded-full">🗑️</button></div></div>); })}</div></div></div>}
+      {adManageProject && <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4"><div className={`w-full max-w-md p-6 rounded-2xl shadow-2xl transform transition-all max-h-[85vh] overflow-y-auto ${darkMode ? 'bg-slate-900 text-white' : 'bg-white'}`}><div className="flex justify-between items-center mb-4 border-b dark:border-slate-800 pb-3"><h3 className="text-lg font-bold flex items-center gap-2">管理廣告: {adManageProject}</h3><button onClick={() => { setAdManageProject(null); setIsEditingAd(false); }} className="p-1 hover:bg-gray-100 dark:hover:bg-slate-800 rounded-full"><X/></button></div><div className="space-y-3 mb-6 bg-gray-50 dark:bg-slate-800/50 p-4 rounded-xl border border-gray-100 dark:border-slate-800"><input value={adForm.name} onChange={(e) => setAdForm({...adForm, name: e.target.value})} className={`w-full px-3 py-2 rounded-lg border text-sm outline-none notranslate ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300 text-gray-900'}`} placeholder="廣告名稱 (如: 591, FB)" autoComplete="off" /><div className="flex gap-2"><input type="date" value={adForm.startDate} onChange={(e) => setAdForm({...adForm, startDate: e.target.value})} className={`flex-1 px-3 py-2 rounded-lg border text-sm outline-none transition-colors ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300 text-gray-900'}`} /><input type="date" value={adForm.endDate} onChange={(e) => setAdForm({...adForm, endDate: e.target.value})} className={`flex-1 px-3 py-2 rounded-lg border text-sm outline-none transition-colors ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300 text-gray-900'}`} /></div><button onClick={handleSaveAd} className="w-full bg-blue-600 text-white py-2 rounded-lg text-sm font-bold active:scale-95 transition-all shadow-md shadow-blue-600/20">{isEditingAd ? '儲存變更' : '新增廣告'}</button></div><div className="space-y-2">{(projectAds[adManageProject] || []).map((ad, idx) => { const adObj = typeof ad === 'string' ? { id: idx, name: ad, endDate: '' } : ad; return (<div key={adObj.id || idx} className="flex justify-between items-center p-3 rounded-lg border dark:border-slate-800 text-sm hover:border-blue-300 transition-colors"><div><span className="font-bold block">{adObj.name}</span></div><div className="flex gap-1"><button onClick={() => handleEditAdInit(ad)} className="p-2 text-blue-500 hover:bg-blue-50 dark:hover:bg-slate-800 rounded-full">✏️</button><button onClick={() => triggerDeleteAd(adObj)} className="p-2 text-red-500 hover:bg-red-50 dark:hover:bg-slate-800 rounded-full">🗑️</button></div></div>); })}</div></div></div>}
     </div>
   );
 }

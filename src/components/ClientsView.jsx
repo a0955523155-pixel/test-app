@@ -1,7 +1,7 @@
 import React, { useRef, useState, useMemo } from 'react';
 import { 
   Building2, Sun, Moon, LogOut, Search, Users, Loader2, UserCircle, CalendarDays, Clock, ChevronRight,
-  Upload, FileText, Plus, Trash2, CheckSquare, Square, X, ListChecks, Radio, Briefcase, AlertCircle
+  Upload, FileText, Plus, Trash2, CheckSquare, Square, X, ListChecks, Radio, Briefcase, AlertCircle, Filter, User
 } from 'lucide-react';
 import * as XLSX from 'xlsx'; 
 import { STATUS_CONFIG } from '../config/constants';
@@ -26,9 +26,7 @@ const ClientCard = ({ c, darkMode, onClick, displayDate, isSelected, onToggleSel
         const diff = Math.ceil((new Date(c.commissionEndDate) - today) / (86400000));
         if (diff >= 0 && diff <= 7) alertMsg = `委託剩 ${diff} 天`;
         else if (diff < 0) alertMsg = `委託已過期`;
-    } 
-    // 檢查多筆代書款項
-    else if (!isSeller && c.scribeDetails && Array.isArray(c.scribeDetails)) {
+    } else if (!isSeller && c.scribeDetails && Array.isArray(c.scribeDetails)) {
         const expiring = c.scribeDetails.find(item => {
             if (item.payDate && !item.isPaid) {
                 const diff = Math.ceil((new Date(item.payDate) - today) / 86400000);
@@ -64,7 +62,6 @@ const ClientCard = ({ c, darkMode, onClick, displayDate, isSelected, onToggleSel
                     <span className={`flex items-center ${isHistoricalView ? 'text-orange-500 font-bold' : ''}`} title={isHistoricalView ? "此為該區間的活動紀錄" : "最後動態時間"}><Clock className="w-3 h-3 mr-1" /> {showDate} {isHistoricalView && <span className="ml-1 text-[9px]">(歷史)</span>}</span>
                     <span className="text-blue-500 font-bold">
                         {isSeller ? (
-                            // 出租價格智慧顯示：包含 "出租" 且金額 < 1000 顯示萬，否則顯示元
                             (c.category && c.category.includes('出租')) 
                                 ? `${c.totalPrice || 0}${Number(c.totalPrice) < 1000 ? '萬' : '元'}` 
                                 : `開價: ${c.totalPrice || 0}萬`
@@ -82,7 +79,8 @@ const ClientsView = ({
     listMode, setListMode, listYear, setListYear, listMonth, setListMonth, listWeekDate, setListWeekDate,
     searchTerm, setSearchTerm,
     loading, customers = [], isAdmin, setView, setSelectedCustomer,
-    onImport, onBatchDelete, onBroadcast
+    onImport, onBatchDelete, onBroadcast,
+    companyProjects // 接收案場資料
 }) => {
     const years = Array.from({length: 10}, (_, i) => new Date().getFullYear() - i); 
     const months = Array.from({length: 12}, (_, i) => i + 1);
@@ -93,11 +91,32 @@ const ClientsView = ({
     const [isBroadcasting, setIsBroadcasting] = useState(false);
     const [isCaseFolderMode, setIsCaseFolderMode] = useState(false);
 
+    // 篩選狀態
+    const [filterRegion, setFilterRegion] = useState('');
+    const [filterProject, setFilterProject] = useState('');
+    const [filterUser, setFilterUser] = useState('');
+    const [filterMinPrice, setFilterMinPrice] = useState('');
+    const [filterMaxPrice, setFilterMaxPrice] = useState('');
+    const [filterMinPing, setFilterMinPing] = useState('');
+    const [filterMaxPing, setFilterMaxPing] = useState('');
+
+    const availableAgents = useMemo(() => {
+        const agents = new Set();
+        customers.forEach(c => {
+            if (c.ownerName) agents.add(c.ownerName);
+        });
+        return Array.from(agents).sort();
+    }, [customers]);
+
     const visibleCustomers = useMemo(() => {
         if (!customers || !Array.isArray(customers)) return [];
         let base = [...customers];
-        if (isCaseFolderMode) base = base.filter(c => ['賣方', '出租', '出租方'].includes(c.category));
-        else if (!isAdmin) base = base.filter(c => c.owner === currentUser?.username);
+        
+        if (isCaseFolderMode) {
+            base = base.filter(c => ['賣方', '出租', '出租方'].includes(c.category));
+        } else if (!isAdmin) {
+            base = base.filter(c => c.owner === currentUser?.username);
+        }
         
         if (listMode !== 'all') {
             base = base.filter(c => {
@@ -108,14 +127,50 @@ const ClientsView = ({
                 return activityDates.some(d => isDateInRange(d, listMode, listYear, listMonth, listWeekDate));
             });
         }
+
+        // ★★★ 進階篩選邏輯 ★★★
+        if (listMode === 'all') {
+            // 1. 地區
+            if (filterRegion) {
+                if (isCaseFolderMode) {
+                    base = base.filter(c => c.assignedRegion === filterRegion);
+                } else {
+                    const projectsInRegion = companyProjects?.[filterRegion] || [];
+                    // 客戶的案場可能是自填的，所以也要比對 reqRegion 或 project
+                    base = base.filter(c => projectsInRegion.includes(c.project) || c.reqRegion === filterRegion);
+                }
+            }
+            // 2. 案場 (依據後台案件名稱)
+            if (filterProject) {
+                if (isCaseFolderMode) {
+                    base = base.filter(c => c.caseName?.includes(filterProject));
+                } else {
+                    base = base.filter(c => c.project === filterProject);
+                }
+            }
+            // 3. 人員 (僅管理員)
+            if (isAdmin && filterUser) {
+                base = base.filter(c => c.ownerName === filterUser);
+            }
+            // 4. 價格與坪數 (僅案件)
+            if (isCaseFolderMode) {
+                if (filterMinPrice) base = base.filter(c => parseFloat(c.totalPrice) >= parseFloat(filterMinPrice));
+                if (filterMaxPrice) base = base.filter(c => parseFloat(c.totalPrice) <= parseFloat(filterMaxPrice));
+                if (filterMinPing) base = base.filter(c => (parseFloat(c.landPing) || parseFloat(c.buildPing)) >= parseFloat(filterMinPing));
+                if (filterMaxPing) base = base.filter(c => (parseFloat(c.landPing) || parseFloat(c.buildPing)) <= parseFloat(filterMaxPing));
+            }
+        }
+
         if (searchTerm.trim()) {
             const term = searchTerm.toLowerCase();
             base = base.filter(c => (c.name?.toLowerCase().includes(term) || c.company?.toLowerCase().includes(term) || c.ownerName?.toLowerCase().includes(term) || c.project?.toLowerCase().includes(term)));
         }
         return base;
-    }, [customers, isAdmin, currentUser, searchTerm, listMode, listYear, listMonth, listWeekDate, isCaseFolderMode]);
+    }, [customers, isAdmin, currentUser, searchTerm, listMode, listYear, listMonth, listWeekDate, isCaseFolderMode, filterRegion, filterProject, filterUser, filterMinPrice, filterMaxPrice, filterMinPing, filterMaxPing, companyProjects]);
 
     const groupedCustomers = useMemo(() => { if (!isAdmin || isCaseFolderMode) return null; const groups = {}; visibleCustomers.forEach(c => { const owner = c.ownerName || c.owner || '未知業務'; if (!groups[owner]) groups[owner] = []; groups[owner].push(c); }); return groups; }, [visibleCustomers, isAdmin, isCaseFolderMode]);
+    
+    // ... Handlers ...
     const toggleSelectionMode = () => { if (isSelectionMode) setSelectedIds([]); setIsSelectionMode(!isSelectionMode); };
     const toggleSelect = (id) => setSelectedIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
     const handleSelectAll = () => setSelectedIds(selectedIds.length === visibleCustomers.length && visibleCustomers.length > 0 ? [] : visibleCustomers.map(c => c.id));
@@ -134,10 +189,51 @@ const ClientsView = ({
                 <div className="flex gap-2 items-center">
                    <button onClick={() => setIsCaseFolderMode(!isCaseFolderMode)} className={`p-2 rounded-full border transition-all ${isCaseFolderMode ? 'bg-orange-500 text-white border-orange-600 shadow-md transform scale-105' : 'bg-white text-gray-600'}`} title="切換案件/客戶列表"><Briefcase className="w-5 h-5" /></button>
                    <button onClick={toggleBroadcastMode} className={`p-2 rounded-full border transition-all ${isBroadcasting ? 'bg-red-600 text-white border-red-700 shadow-lg shadow-red-500/50 animate-pulse' : 'bg-white text-gray-400'}`} title="開啟全屏廣播模式"><Radio className="w-5 h-5" /></button>
-                   {isSelectionMode ? (<><button onClick={handleSelectAll} className="p-2 rounded-full bg-blue-100 text-blue-600 hover:bg-blue-200"><ListChecks className="w-5 h-5" /></button>{selectedIds.length > 0 && <button onClick={handleBatchDeleteClick} className="bg-red-600 text-white px-3 py-2 rounded-full text-xs font-bold flex items-center gap-1 animate-pulse"><Trash2 className="w-4 h-4" /> 刪除 ({selectedIds.length})</button>}<button onClick={toggleSelectionMode} className="p-2 rounded-full bg-gray-200 text-gray-600"><X className="w-5 h-5" /></button></>) : (<><button onClick={toggleSelectionMode} className={`p-2 rounded-full border ${darkMode ? 'bg-slate-800 text-blue-400' : 'bg-white text-blue-600'}`}><CheckSquare className="w-5 h-5" /></button><button onClick={() => setView('add')} className="bg-blue-600 text-white px-3 py-2 rounded-full text-xs font-bold flex items-center gap-1"><Plus className="w-4 h-4" /> 新增</button><button onClick={() => fileInputRef.current.click()} disabled={isImporting} className="bg-white text-green-600 border px-3 py-2 rounded-full text-xs font-bold flex items-center gap-1">{isImporting ? <Loader2 className="w-4 h-4 animate-spin"/> : <Upload className="w-4 h-4" />} 匯入</button></>)}<input type="file" ref={fileInputRef} className="hidden" accept=".csv, .xlsx, .xls" onChange={handleFileChange} /><button onClick={toggleDarkMode} className={`p-2 rounded-full ${darkMode ? 'bg-slate-800 text-yellow-400' : 'bg-gray-200'}`}>{darkMode ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}</button><button onClick={handleLogout} className="p-2 rounded-full bg-gray-200 text-red-400"><LogOut className="w-5 h-5" /></button>
+                   {isSelectionMode ? (<><button onClick={handleSelectAll} className="p-2 rounded-full bg-blue-100 text-blue-600 hover:bg-blue-200"><ListChecks className="w-5 h-5" /></button>{selectedIds.length > 0 && <button onClick={handleBatchDeleteClick} className="bg-red-600 text-white px-3 py-2 rounded-full text-xs font-bold flex items-center gap-1 animate-pulse"><Trash2 className="w-4 h-4" /> 刪除 ({selectedIds.length})</button>}<button onClick={toggleSelectionMode} className="p-2 rounded-full bg-gray-200 text-gray-600"><X className="w-5 h-5" /></button></>) : (<><button onClick={toggleSelectionMode} className={`p-2 rounded-full border ${darkMode ? 'bg-slate-800 text-blue-400' : 'bg-white text-blue-600'}`}><CheckSquare className="w-5 h-5" /></button><button onClick={() => setView('add')} className="bg-blue-600 text-white px-3 py-2 rounded-full text-xs font-bold flex items-center gap-1"><Plus className="w-4 h-4" /> 新增</button><button onClick={() => fileInputRef.current.click()} disabled={isImporting} className="bg-white text-green-600 border px-3 py-2 rounded-full text-xs font-bold flex items-center gap-1">{isImporting ? <Loader2 className="w-4 h-4 animate-spin"/> : <Upload className="w-4 h-4" />} 匯入</button></>)}<input type="file" ref={fileInputRef} className="hidden" accept=".csv, .xlsx, .xls" onChange={handleFileChange} /><button onClick={toggleDarkMode} className={`p-2 rounded-full ${darkMode ? 'bg-slate-800 text-yellow-400' : 'bg-gray-200'}`}>{darkMode ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}</button><button onClick={handleLogout} className="p-2 rounded-full bg-gray-200 text-red-400"><LogOut className="w-5 h-5"/></button>
                 </div>
              </div>
-             <div className="flex flex-col gap-2 mb-3"><div className="flex bg-gray-200 dark:bg-slate-800 rounded-lg p-1">{['week', 'month', 'year', 'all'].map(m => <button key={m} onClick={() => setListMode(m)} className={`flex-1 py-1 text-xs font-bold rounded ${listMode === m ? 'bg-white dark:bg-slate-600 text-blue-600 shadow' : 'text-gray-500'}`}>{m === 'week' ? '週' : m === 'month' ? '月' : m === 'year' ? '年' : '全部'}檢視</button>)}</div>{listMode !== 'all' && (<div className="flex gap-2">{listMode === 'week' ? (<div className="flex items-center flex-1 gap-2"><input type="date" value={listWeekDate} onChange={(e) => setListWeekDate(e.target.value)} className={`flex-1 py-1 px-2 rounded border text-xs ${darkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white'}`} /><span className="text-xs text-gray-500 font-medium">{getWeekRangeDisplay(listWeekDate)}</span></div>) : (<><select value={listYear} onChange={(e) => setListYear(Number(e.target.value))} className={`flex-1 py-1 px-2 rounded border text-xs ${darkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white'}`}>{years.map(y => <option key={y} value={y}>{y}年</option>)}</select>{listMode === 'month' && <select value={listMonth} onChange={(e) => setListMonth(Number(e.target.value))} className={`flex-1 py-1 px-2 rounded border text-xs ${darkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white'}`}>{months.map(m => <option key={m} value={m}>{m}月</option>)}</select>}</>)}</div>)}</div><div className={`rounded-xl p-2 flex items-center border ${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-gray-300'}`}><Search className="w-5 h-5 text-gray-400 ml-2" /><input type="text" placeholder="搜尋..." className="w-full px-3 py-1 bg-transparent outline-none text-sm font-medium" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} /></div>
+             
+             <div className="flex flex-col gap-2 mb-3">
+                 <div className="flex bg-gray-200 dark:bg-slate-800 rounded-lg p-1">
+                     {['week', 'month', 'year', 'all'].map(m => <button key={m} onClick={() => setListMode(m)} className={`flex-1 py-1 text-xs font-bold rounded ${listMode === m ? 'bg-white dark:bg-slate-600 text-blue-600 shadow' : 'text-gray-500'}`}>{m === 'week' ? '週' : m === 'month' ? '月' : m === 'year' ? '年' : '全部'}檢視</button>)}
+                 </div>
+                 {listMode !== 'all' && (
+                     <div className="flex gap-2">
+                         {listMode === 'week' ? (<div className="flex items-center flex-1 gap-2"><input type="date" value={listWeekDate} onChange={(e) => setListWeekDate(e.target.value)} className={`flex-1 py-1 px-2 rounded border text-xs ${darkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white'}`} /><span className="text-xs text-gray-500 font-medium">{getWeekRangeDisplay(listWeekDate)}</span></div>) : (<><select value={listYear} onChange={(e) => setListYear(Number(e.target.value))} className={`flex-1 py-1 px-2 rounded border text-xs ${darkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white'}`}>{years.map(y => <option key={y} value={y}>{y}年</option>)}</select>{listMode === 'month' && <select value={listMonth} onChange={(e) => setListMonth(Number(e.target.value))} className={`flex-1 py-1 px-2 rounded border text-xs ${darkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white'}`}>{months.map(m => <option key={m} value={m}>{m}月</option>)}</select>}</>)}
+                     </div>
+                 )}
+                 
+                 {listMode === 'all' && (
+                     <div className="bg-blue-50 dark:bg-slate-800 p-2 rounded-lg border border-blue-100 dark:border-slate-700 text-sm space-y-2 animate-in fade-in slide-in-from-top-2">
+                         <div className="flex gap-2 items-center text-blue-600 font-bold mb-1"><Filter className="w-3 h-3"/> {isCaseFolderMode ? '案件篩選' : '客戶篩選'}</div>
+                         
+                         <div className="flex gap-2 flex-wrap">
+                             <select value={filterRegion} onChange={e => { setFilterRegion(e.target.value); setFilterProject(''); }} className="flex-1 min-w-[30%] p-1 rounded border text-xs"><option value="">所有區域</option>{companyProjects && Object.keys(companyProjects).map(r => <option key={r} value={r}>{r}</option>)}</select>
+                             {/* ★ 連動篩選：只顯示該區域的案件 ★ */}
+                             <select value={filterProject} onChange={e => setFilterProject(e.target.value)} className="flex-1 min-w-[30%] p-1 rounded border text-xs"><option value="">{isCaseFolderMode?'所有案名':'所有案場'}</option>{filterRegion && companyProjects[filterRegion]?.map(p => <option key={p} value={p}>{p}</option>)}</select>
+                             {/* ★ 權限控制：Admin 才能看見人員篩選 ★ */}
+                             {isAdmin && (
+                                 <div className="flex-1 min-w-[30%] flex items-center bg-white border rounded px-1">
+                                    <User className="w-3 h-3 text-gray-400 mr-1"/>
+                                    <select value={filterUser} onChange={e => setFilterUser(e.target.value)} className="w-full p-1 text-xs border-none outline-none">
+                                        <option value="">所有人員</option>
+                                        {availableAgents.map(name => <option key={name} value={name}>{name}</option>)}
+                                    </select>
+                                 </div>
+                             )}
+                         </div>
+
+                         {isCaseFolderMode && (
+                             <>
+                                 <div className="flex gap-2 items-center"><span className="text-xs text-gray-500 w-8">總價</span><input placeholder="最少" value={filterMinPrice} onChange={e=>setFilterMinPrice(e.target.value)} className="w-full p-1 rounded border text-xs"/><span className="text-gray-400">~</span><input placeholder="最多" value={filterMaxPrice} onChange={e=>setFilterMaxPrice(e.target.value)} className="w-full p-1 rounded border text-xs"/></div>
+                                 <div className="flex gap-2 items-center"><span className="text-xs text-gray-500 w-8">坪數</span><input placeholder="最少" value={filterMinPing} onChange={e=>setFilterMinPing(e.target.value)} className="w-full p-1 rounded border text-xs"/><span className="text-gray-400">~</span><input placeholder="最多" value={filterMaxPing} onChange={e=>setFilterMaxPing(e.target.value)} className="w-full p-1 rounded border text-xs"/></div>
+                             </>
+                         )}
+                     </div>
+                 )}
+             </div>
+
+             <div className={`rounded-xl p-2 flex items-center border ${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-gray-300'}`}><Search className="w-5 h-5 text-gray-400 ml-2" /><input type="text" placeholder="搜尋..." className="w-full px-3 py-1 bg-transparent outline-none text-sm font-medium" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} /></div>
            </div>
         </div>
         <div className="px-4 mt-4 w-full">
