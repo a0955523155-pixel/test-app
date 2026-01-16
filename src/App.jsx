@@ -502,6 +502,12 @@ export default function App() {
   const handleReorderOption = (type, f, t) => { const l=[...appSettings[type]]; const [r]=l.splice(f,1); l.splice(t,0,r); setAppSettings({...appSettings,[type]:l}); saveAppSettings({[type]:l}); };
   
   const saveSettingsToFirestore = async (np, na) => { if(!currentUser?.companyCode)return; const p={}; if(np)p.projects=np; if(na)p.projectAds=na; try{ await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'company_settings', currentUser.companyCode), p, {merge:true}); }catch(e){} };
+  // ★★★ 新增：更新專案函數 (供 ClientsView 使用) ★★★
+  const handleUpdateProjects = async (newProjects) => {
+      setCompanyProjects(newProjects);
+      await saveSettingsToFirestore(newProjects, null);
+  };
+
   const handleAddRegion = () => { if(!newRegionName.trim()||companyProjects[newRegionName])return; const u={...companyProjects,[newRegionName]:[]}; setCompanyProjects(u); saveSettingsToFirestore(u,null); setNewRegionName(''); };
   const handleAddProject = (r) => { const n=newProjectNames[r]; if(!n||!n.trim()||companyProjects[r].includes(n))return; const u={...companyProjects,[r]:[...(companyProjects[r]||[]),n]}; setCompanyProjects(u); saveSettingsToFirestore(u,null); setNewProjectNames({...newProjectNames,[r]:''}); };
   const handleDeleteRegion = (r) => setPendingDelete({type:'region',region:r});
@@ -593,9 +599,10 @@ export default function App() {
       <NotificationModal notifications={notifications} onClose={() => setNotifications([])} onQuickUpdate={handleQuickUpdate} />
       {view === 'list' && <Marquee text={announcement} darkMode={darkMode} />}
       {activeTab === 'clients' ? 
-        /* ★★★ 傳遞 companyProjects ★★★ */
+        /* ★★★ 傳遞 onUpdateProjects ★★★ */
         <ClientsView 
             companyProjects={companyProjects}
+            onUpdateProjects={handleUpdateProjects}
             customers={customers} currentUser={currentUser} darkMode={darkMode} toggleDarkMode={toggleDarkMode} handleLogout={handleLogout} listMode={listMode} setListMode={setListMode} listYear={listYear} setListYear={setListYear} listMonth={listMonth} setListMonth={setListMonth} listWeekDate={listWeekDate} setListWeekDate={setListWeekDate} searchTerm={searchTerm} setSearchTerm={setSearchTerm} loading={loading} isAdmin={isAdmin} setView={setView} setSelectedCustomer={setSelectedCustomer} onImport={handleBatchImport} onBatchDelete={handleBatchDelete} onBroadcast={handleBroadcast} 
         /> 
         : 

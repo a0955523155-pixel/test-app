@@ -8,11 +8,20 @@ import { STATUS_CONFIG } from '../config/constants';
 import { formatDateString, isDateInRange, getWeekRangeDisplay } from '../utils/helpers';
 
 const StatusBadge = ({ status }) => {
-    const labelMap = { 'new': '新案件/客戶', 'contacting': '洽談/接洽', 'commissioned': '已委託', 'offer': '已收斡', 'closed': '已成交', 'lost': '已無效' };
-    const label = labelMap[status] || (STATUS_CONFIG[status] || STATUS_CONFIG['new']).label;
+    // 寬鬆對應表
+    const labelMap = { 
+        'new': '新案件/客戶', 'contacting': '洽談/接洽', 'commissioned': '已委託', 
+        'offer': '已收斡', 'closed': '已成交', 'lost': '已無效' 
+    };
+    
+    // 如果 status 是中文，直接顯示中文；如果是代碼，轉成中文
+    const displayLabel = labelMap[status] || status || '新案件/客戶';
+    
+    // 決定顏色 (若無對應則用灰色)
     const config = STATUS_CONFIG[status] || STATUS_CONFIG['new'];
     const Icon = config.icon || Users; 
-    return <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${config.color}`}><Icon className="w-3 h-3 mr-1" />{label}</span>;
+    
+    return <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${config.color}`}><Icon className="w-3 h-3 mr-1" />{displayLabel}</span>;
 };
 
 const ClientCard = ({ c, darkMode, onClick, displayDate, isSelected, onToggleSelect, isSelectionMode }) => {
@@ -80,7 +89,7 @@ const ClientsView = ({
     searchTerm, setSearchTerm,
     loading, customers = [], isAdmin, setView, setSelectedCustomer,
     onImport, onBatchDelete, onBroadcast,
-    companyProjects // 接收案場資料
+    companyProjects, onUpdateProjects 
 }) => {
     const years = Array.from({length: 10}, (_, i) => new Date().getFullYear() - i); 
     const months = Array.from({length: 12}, (_, i) => i + 1);
@@ -102,9 +111,7 @@ const ClientsView = ({
 
     const availableAgents = useMemo(() => {
         const agents = new Set();
-        customers.forEach(c => {
-            if (c.ownerName) agents.add(c.ownerName);
-        });
+        customers.forEach(c => { if (c.ownerName) agents.add(c.ownerName); });
         return Array.from(agents).sort();
     }, [customers]);
 
@@ -128,31 +135,20 @@ const ClientsView = ({
             });
         }
 
-        // ★★★ 進階篩選邏輯 ★★★
         if (listMode === 'all') {
-            // 1. 地區
             if (filterRegion) {
-                if (isCaseFolderMode) {
-                    base = base.filter(c => c.assignedRegion === filterRegion);
-                } else {
+                if (isCaseFolderMode) base = base.filter(c => c.assignedRegion === filterRegion);
+                else {
                     const projectsInRegion = companyProjects?.[filterRegion] || [];
-                    // 客戶的案場可能是自填的，所以也要比對 reqRegion 或 project
                     base = base.filter(c => projectsInRegion.includes(c.project) || c.reqRegion === filterRegion);
                 }
             }
-            // 2. 案場 (依據後台案件名稱)
             if (filterProject) {
-                if (isCaseFolderMode) {
-                    base = base.filter(c => c.caseName?.includes(filterProject));
-                } else {
-                    base = base.filter(c => c.project === filterProject);
-                }
+                if (isCaseFolderMode) base = base.filter(c => c.caseName?.includes(filterProject));
+                else base = base.filter(c => c.project === filterProject);
             }
-            // 3. 人員 (僅管理員)
-            if (isAdmin && filterUser) {
-                base = base.filter(c => c.ownerName === filterUser);
-            }
-            // 4. 價格與坪數 (僅案件)
+            if (isAdmin && filterUser) base = base.filter(c => c.ownerName === filterUser);
+
             if (isCaseFolderMode) {
                 if (filterMinPrice) base = base.filter(c => parseFloat(c.totalPrice) >= parseFloat(filterMinPrice));
                 if (filterMaxPrice) base = base.filter(c => parseFloat(c.totalPrice) <= parseFloat(filterMaxPrice));
@@ -170,14 +166,175 @@ const ClientsView = ({
 
     const groupedCustomers = useMemo(() => { if (!isAdmin || isCaseFolderMode) return null; const groups = {}; visibleCustomers.forEach(c => { const owner = c.ownerName || c.owner || '未知業務'; if (!groups[owner]) groups[owner] = []; groups[owner].push(c); }); return groups; }, [visibleCustomers, isAdmin, isCaseFolderMode]);
     
-    // ... Handlers ...
+    // 日期解析
+    const parseExcelDate = (val) => {
+        if (!val) return new Date().toISOString().split('T')[0]; 
+        let strVal = String(val).trim();
+        const numVal = Number(strVal);
+        if (!isNaN(numVal) && numVal > 20000 && numVal < 60000) {
+            let dateObj = new Date((numVal - 25569) * 86400 * 1000);
+            return dateObj.toISOString().split('T')[0];
+        } else {
+            let cleanStr = strVal.replace(/\//g, '-').replace(/\./g, '-');
+            const parts = cleanStr.split('-');
+            if (parts.length === 3) {
+                if (parts[0].length < 4 && parseInt(parts[0]) < 1911) {
+                    parts[0] = String(parseInt(parts[0]) + 1911);
+                }
+                cleanStr = parts.join('-');
+            }
+            const timestamp = Date.parse(cleanStr);
+            if (!isNaN(timestamp)) {
+                let dateObj = new Date(timestamp);
+                const y = dateObj.getFullYear();
+                const m = String(dateObj.getMonth() + 1).padStart(2, '0');
+                const d = String(dateObj.getDate()).padStart(2, '0');
+                if (y > 1900 && y < 2100) return `${y}-${m}-${d}`;
+            }
+        }
+        return new Date().toISOString().split('T')[0];
+    };
+
+    const processImportData = (jsonData) => {
+        const parsedData = [];
+        
+        const headerMap = {
+            "姓名": "name", "電話": "phone", "手機": "phone", 
+            "分類": "category", "類別": "category",
+            "狀態": "status", "目前狀態": "status", "Status": "status",
+            "等級": "level", 
+            "來源": "source", "客戶來源": "source", "Source": "source",
+            
+            "區域": "reqRegion", "地區": "reqRegion", "Region": "reqRegion", "案件區域": "assignedRegion", 
+            "案件名稱": "caseName", "案名": "caseName", "有興趣的案場": "project", "需求案場": "project", "案場": "project",
+            
+            "總價": "totalPrice", "開價": "totalPrice", "預算": "value", "總價/預算": "genericPrice", 
+            "土地坪數": "landPing", "地坪": "landPing", "建物坪數": "buildPing", "建坪": "buildPing",
+            
+            "樓層": "floor", "屋齡": "houseAge", "備註": "remarks", 
+            "建檔日期": "createdAt", "日期": "createdAt",
+            "次要專員": "subAgent", "次要服務專員": "subAgent"
+        };
+
+        const statusMap = { '新案件': 'new', '新客戶': 'new', '洽談中': 'contacting', '已委託': 'commissioned', '已收斡': 'offer', '已成交': 'closed', '已無效': 'lost' };
+
+        jsonData.forEach(row => {
+            const obj = {};
+            
+            Object.keys(row).forEach(key => {
+                const cleanKey = key.trim();
+                let mappedKey = headerMap[cleanKey] || cleanKey;
+                let value = row[key];
+
+                if (value !== undefined && value !== null) {
+                    value = String(value).trim();
+                } else {
+                    value = '';
+                }
+
+                if (mappedKey === 'createdAt') {
+                    obj.createdAt = parseExcelDate(value);
+                } else if (mappedKey === 'status') {
+                    // ★ 修正：如果狀態有對應代碼就轉，沒有就保留原文字 (如"成交") ★
+                    obj.status = statusMap[value] || statusMap[value.replace(/\s/g, '')] || value; 
+                } else {
+                    obj[mappedKey] = value;
+                }
+            });
+
+            // 預設與修正
+            if (!obj.category) obj.category = '買方';
+            // ★ 修正：若無來源，先留空，不強制寫 Excel匯入，除非真的沒資料
+            if (!obj.source && obj.source !== '') obj.source = 'Excel匯入'; 
+            if (!obj.level) obj.level = 'C';
+
+            const isSeller = ['賣方', '出租', '出租方'].includes(obj.category);
+            
+            if (obj.genericPrice) {
+                if (isSeller) obj.totalPrice = obj.genericPrice;
+                else obj.value = obj.genericPrice;
+                delete obj.genericPrice;
+            }
+            
+            // 地區與案場互轉
+            if (isSeller) {
+                if (obj.reqRegion && !obj.assignedRegion) obj.assignedRegion = obj.reqRegion;
+                if (obj.project && !obj.caseName) obj.caseName = obj.project;
+            } else {
+                // 買方
+                if (obj.caseName && !obj.project) obj.project = obj.caseName;
+            }
+
+            if (obj.name) {
+                parsedData.push(obj);
+            }
+        });
+        return parsedData;
+    };
+
+    const handleFileChange = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        setIsImporting(true);
+        try {
+            const fileName = file.name.toLowerCase();
+            let jsonData = [];
+            if (fileName.endsWith('.xlsx') || fileName.endsWith('.xls')) {
+                const data = await file.arrayBuffer();
+                const workbook = XLSX.read(data);
+                jsonData = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], { raw: false });
+            } else {
+                const text = await new Promise((res) => { const r = new FileReader(); r.onload = (e) => res(e.target.result); r.readAsText(file); });
+                const lines = text.split(/\r\n|\n/).filter(l => l.trim() !== '');
+                const headers = lines[0].split(',').map(h => h.replace(/^"|"$/g, '').trim());
+                jsonData = lines.slice(1).map(line => { const r = {}; const v = line.split(','); headers.forEach((h, i) => r[h] = v[i] ? v[i].replace(/^"|"$/g, '').trim() : ''); return r; });
+            }
+            
+            const parsed = processImportData(jsonData);
+            
+            // ★★★ 自動歸類案場邏輯 ★★★
+            if (onUpdateProjects && companyProjects) {
+                const currentProjects = new Set();
+                Object.values(companyProjects).flat().forEach(p => currentProjects.add(p));
+                let newProjectsFound = false;
+                const updatedCompanyProjects = { ...companyProjects };
+                if (!updatedCompanyProjects['其他']) updatedCompanyProjects['其他'] = [];
+
+                parsed.forEach(item => {
+                    const pName = item.project || item.caseName;
+                    if (pName && !currentProjects.has(pName)) {
+                        updatedCompanyProjects['其他'].push(pName);
+                        currentProjects.add(pName);
+                        newProjectsFound = true;
+                    }
+                });
+
+                if (newProjectsFound) {
+                    await onUpdateProjects(updatedCompanyProjects);
+                }
+            }
+
+            const sample = parsed[0];
+            const sampleInfo = sample ? `\n\n範例資料:\n姓名: ${sample.name}\n狀態: ${sample.status}\n來源: ${sample.source}\n日期: ${sample.createdAt}` : '';
+            
+            if (parsed.length > 0 && confirm(`準備匯入 ${parsed.length} 筆資料？${sampleInfo}`)) {
+                onImport(parsed);
+            }
+        } catch (err) {
+            console.error(err);
+            alert("匯入失敗，請確認檔案格式");
+        } finally {
+            setIsImporting(false);
+            e.target.value = '';
+        }
+    };
+
     const toggleSelectionMode = () => { if (isSelectionMode) setSelectedIds([]); setIsSelectionMode(!isSelectionMode); };
     const toggleSelect = (id) => setSelectedIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
     const handleSelectAll = () => setSelectedIds(selectedIds.length === visibleCustomers.length && visibleCustomers.length > 0 ? [] : visibleCustomers.map(c => c.id));
     const handleBatchDeleteClick = () => { onBatchDelete(selectedIds); setSelectedIds([]); setIsSelectionMode(false); };
     const handleCardClick = (client) => { if (isSelectionMode) { toggleSelect(client.id); } else if (isBroadcasting) { if(confirm(`確定要廣播「${client.name}」的資料給所有人看嗎？`)) { onBroadcast(client.id, true); } } else { setSelectedCustomer(client); setView('detail'); } };
     const toggleBroadcastMode = () => { const newState = !isBroadcasting; setIsBroadcasting(newState); if (!newState) { onBroadcast(null, false); } };
-    const handleFileChange = async (e) => { const file = e.target.files[0]; if (!file) return; setIsImporting(true); try { const fileName = file.name.toLowerCase(); let jsonData = []; if (fileName.endsWith('.xlsx') || fileName.endsWith('.xls')) { const data = await file.arrayBuffer(); const workbook = XLSX.read(data); jsonData = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]); } else { const text = await new Promise((res) => { const r = new FileReader(); r.onload = (e) => res(e.target.result); r.readAsText(file); }); const lines = text.split(/\r\n|\n/).filter(l => l.trim() !== ''); const headers = lines[0].split(',').map(h => h.replace(/^"|"$/g, '').trim()); jsonData = lines.slice(1).map(line => { const r = {}; const v = line.split(','); headers.forEach((h, i) => r[h] = v[i] ? v[i].replace(/^"|"$/g, '').trim() : ''); return r; }); } const parsed = []; jsonData.forEach(row => { const obj = {}; let remarksBuffer = []; Object.keys(row).forEach(header => { let value = row[header] ? String(row[header]).trim() : ''; if (header.match(/(時間戳記|Timestamp|Date|日期|建檔日期)/i)) { try { const d = new Date(value); if (!isNaN(d.getTime())) { const y = d.getFullYear(); const m = String(d.getMonth()+1).padStart(2,'0'); const day = String(d.getDate()).padStart(2,'0'); obj.createdAt = `${y}-${m}-${day}`; } } catch(e) {} } else if (header.match(/(姓名|稱呼|Name)/i)) obj.name = value; else if (header.match(/(電話|手機|Phone|Mobile)/i)) obj.phone = value; else if (header.match(/(公司|Company)/i)) obj.company = value; else if (header.match(/(預算|Budget|Price)/i)) obj.value = value; else if (header.match(/(區域|地區|Region)/i)) obj.reqRegion = value; else if (header.match(/(來源|Source)/i)) obj.source = value; else if (header.match(/(分類|Category|Type)/i)) obj.category = value; else { if (value && !header.startsWith('__EMPTY')) remarksBuffer.push(`${header}: ${value}`); } }); if (!obj.createdAt) obj.createdAt = new Date().toISOString().split('T')[0]; obj.lastContact = obj.createdAt; if (!obj.source) obj.source = "Excel匯入"; if (!obj.status) obj.status = "new"; if (!obj.category) obj.category = "買方"; if (!obj.level) obj.level = "C"; if (remarksBuffer.length > 0) obj.remarks = remarksBuffer.join('\n'); if (obj.name || obj.phone) parsed.push(obj); }); if (parsed.length > 0 && confirm(`準備匯入 ${parsed.length} 筆資料？`)) onImport(parsed); } catch (err) { alert("匯入失敗"); } finally { setIsImporting(false); e.target.value = ''; } };
 
     return (
       <div className="pb-24 w-full">
@@ -193,6 +350,7 @@ const ClientsView = ({
                 </div>
              </div>
              
+             {/* 時間篩選 */}
              <div className="flex flex-col gap-2 mb-3">
                  <div className="flex bg-gray-200 dark:bg-slate-800 rounded-lg p-1">
                      {['week', 'month', 'year', 'all'].map(m => <button key={m} onClick={() => setListMode(m)} className={`flex-1 py-1 text-xs font-bold rounded ${listMode === m ? 'bg-white dark:bg-slate-600 text-blue-600 shadow' : 'text-gray-500'}`}>{m === 'week' ? '週' : m === 'month' ? '月' : m === 'year' ? '年' : '全部'}檢視</button>)}
@@ -203,15 +361,14 @@ const ClientsView = ({
                      </div>
                  )}
                  
+                 {/* 進階篩選 */}
                  {listMode === 'all' && (
                      <div className="bg-blue-50 dark:bg-slate-800 p-2 rounded-lg border border-blue-100 dark:border-slate-700 text-sm space-y-2 animate-in fade-in slide-in-from-top-2">
                          <div className="flex gap-2 items-center text-blue-600 font-bold mb-1"><Filter className="w-3 h-3"/> {isCaseFolderMode ? '案件篩選' : '客戶篩選'}</div>
                          
                          <div className="flex gap-2 flex-wrap">
                              <select value={filterRegion} onChange={e => { setFilterRegion(e.target.value); setFilterProject(''); }} className="flex-1 min-w-[30%] p-1 rounded border text-xs"><option value="">所有區域</option>{companyProjects && Object.keys(companyProjects).map(r => <option key={r} value={r}>{r}</option>)}</select>
-                             {/* ★ 連動篩選：只顯示該區域的案件 ★ */}
                              <select value={filterProject} onChange={e => setFilterProject(e.target.value)} className="flex-1 min-w-[30%] p-1 rounded border text-xs"><option value="">{isCaseFolderMode?'所有案名':'所有案場'}</option>{filterRegion && companyProjects[filterRegion]?.map(p => <option key={p} value={p}>{p}</option>)}</select>
-                             {/* ★ 權限控制：Admin 才能看見人員篩選 ★ */}
                              {isAdmin && (
                                  <div className="flex-1 min-w-[30%] flex items-center bg-white border rounded px-1">
                                     <User className="w-3 h-3 text-gray-400 mr-1"/>
