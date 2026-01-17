@@ -192,7 +192,6 @@ export default function App() {
       }
   }, [darkMode]);
 
-  // Notifications logic
   useEffect(() => {
       if (!customers || customers.length === 0 || !currentUser) return;
       const today = new Date();
@@ -317,7 +316,7 @@ export default function App() {
             sources: data.sources || DEFAULT_SOURCES,
             categories: data.categories || DEFAULT_CATEGORIES,
             levels: data.levels || DEFAULT_LEVELS,
-            scriveners: data.scriveners || [] // 載入代書資料
+            scriveners: data.scriveners || []
         });
       } else {
         const initData = { 
@@ -482,27 +481,9 @@ export default function App() {
   const handleAddNote = async (id, content) => { try { const today = new Date().toISOString().split('T')[0]; await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'customers', id), { notes: arrayUnion({id:Date.now(), date:today, content, author:currentUser.name}), lastContact: today }); } catch(e){} };
   const handleDeleteNote = async (id, note) => { try { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'customers', id), { notes: arrayRemove(note) }); } catch(e){} };
   
-  // ★★★ 儲存設定 (傳給 DashboardView 使用) ★★★
-  const saveAppSettings = async (s) => { if(!currentUser?.companyCode)return; try{ await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'company_settings', currentUser.companyCode), s, {merge:true}); }catch(e){} };
-  
-  const handleSaveAnnouncement = async (t) => { if(!currentUser?.companyCode)return; try{ await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'company_settings', currentUser.companyCode), {announcement:t}, {merge:true}); alert("更新成功"); }catch(e){} };
-  const handleAddOption = (type, val) => { 
-      // 支援傳入整個陣列 (如 scriveners)
-      if (Array.isArray(val) && type === 'scriveners') {
-          setAppSettings({...appSettings, [type]: val});
-          saveAppSettings({[type]: val});
-          return;
-      }
-      if(!val || appSettings[type].includes(val))return; 
-      const u=[...appSettings[type],val]; 
-      setAppSettings({...appSettings,[type]:u}); 
-      saveAppSettings({[type]:u}); 
-  };
-  const handleDeleteOption = (type, opt) => { const u=appSettings[type].filter(i=>i!==opt); setAppSettings({...appSettings,[type]:u}); saveAppSettings({[type]:u}); };
-  const handleReorderOption = (type, f, t) => { const l=[...appSettings[type]]; const [r]=l.splice(f,1); l.splice(t,0,r); setAppSettings({...appSettings,[type]:l}); saveAppSettings({[type]:l}); };
-  
   const saveSettingsToFirestore = async (np, na) => { if(!currentUser?.companyCode)return; const p={}; if(np)p.projects=np; if(na)p.projectAds=na; try{ await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'company_settings', currentUser.companyCode), p, {merge:true}); }catch(e){} };
-  // ★★★ 新增：更新專案函數 (供 ClientsView 使用) ★★★
+  
+  // ★★★ 更新案場函數 ★★★
   const handleUpdateProjects = async (newProjects) => {
       setCompanyProjects(newProjects);
       await saveSettingsToFirestore(newProjects, null);
@@ -525,87 +506,23 @@ export default function App() {
   const handleSaveDeal = async (dealData) => { try{ const id=dealData.id||Date.now().toString(); let ag=dealData.agentName||(dealData.distributions?.[0]?.agentName)||(allUsers.find(u=>u.username===dealData.agent)?.name)||dealData.agent||currentUser?.name||"未知"; const n={...dealData,id,createdAt:dealData.createdAt||new Date().toISOString(),companyCode:currentUser.companyCode,agentName:ag}; await setDoc(doc(db,'artifacts',appId,'public','data','deals',id),n,{merge:true}); alert("已儲存"); }catch(e){alert("失敗");} };
   const handleDeleteDeal = async (id) => { if(!confirm("刪除？"))return; try{await deleteDoc(doc(db,'artifacts',appId,'public','data','deals',id))}catch(e){} };
 
-  // ★★★ 數據統計邏輯修正 (處理逗號與日期) ★★★
-  const dashboardStats = useMemo(() => { 
-      let t=0, w=0; 
-      deals.forEach(d=>{ 
-          const dateRef = new Date(d.signDate || d.dealDate); 
-          const y=dateRef.getFullYear(), m=dateRef.getMonth()+1; 
-          let i=false; 
-          if(dashTimeFrame==='all')i=true; 
-          else if(dashTimeFrame==='year')i=y===statYear; 
-          else if(dashTimeFrame==='month')i=y===statYear&&m===statMonth; 
-          if(i){
-              // ★ 移除逗號後再轉數字
-              const sub = parseFloat(String(d.subtotal).replace(/,/g, '')) || 0;
-              t += sub;
-              w++;
-          } 
-      }); 
-      return {totalRevenue:t, counts:{total:customers.length,won:w}}; 
-  }, [customers,deals,dashTimeFrame,statYear,statMonth]);
-
-  const agentStats = useMemo(() => { 
-      const map={}; 
-      allUsers.forEach(u => map[u.name] = { name: u.name, total: 0, commission: 0 });
-
-      deals.forEach(d => { 
-         const dateRef = new Date(d.signDate || d.dealDate); 
-         const y=dateRef.getFullYear(), m=dateRef.getMonth()+1; 
-         let i=false; 
-         if(dashTimeFrame==='all')i=true; 
-         else if(dashTimeFrame==='year')i=y===statYear; 
-         else if(dashTimeFrame==='month')i=y===statYear&&m===statMonth; 
-         
-         if(i) {
-             if (d.devAgents && Array.isArray(d.devAgents)) {
-                 d.devAgents.forEach(ag => {
-                     if (ag.user) {
-                         if (!map[ag.user]) map[ag.user] = { name: ag.user, total: 0, commission: 0 };
-                         // ★ 移除逗號
-                         const amt = parseFloat(String(ag.amount).replace(/,/g, '')) || 0;
-                         map[ag.user].commission += amt;
-                         map[ag.user].total += 1;
-                     }
-                 });
-             }
-             if (d.salesAgents && Array.isArray(d.salesAgents)) {
-                 d.salesAgents.forEach(ag => {
-                     if (ag.user) {
-                         if (!map[ag.user]) map[ag.user] = { name: ag.user, total: 0, commission: 0 };
-                         // ★ 移除逗號
-                         const amt = parseFloat(String(ag.amount).replace(/,/g, '')) || 0;
-                         map[ag.user].commission += amt;
-                         map[ag.user].total += 1; 
-                     }
-                 });
-             }
-         }
-      });
-      return Object.values(map).sort((a,b) => b.commission - a.commission).filter(a => a.commission > 0); 
-  }, [deals, dashTimeFrame, statYear, statMonth, allUsers]);
-
+  const dashboardStats = useMemo(() => { let t=0,w=0; deals.forEach(d=>{ const y=new Date(d.date).getFullYear(), m=new Date(d.date).getMonth()+1; let i=false; if(dashTimeFrame==='all')i=true; else if(dashTimeFrame==='year')i=y===statYear; else if(dashTimeFrame==='month')i=y===statYear&&m===statMonth; if(i){t+=(Number(d.commission)||0);w++;} }); return {totalRevenue:t, counts:{total:customers.length,won:w}}; }, [customers,deals,dashTimeFrame,statYear,statMonth]);
+  const agentStats = useMemo(() => { const map={}; customers.forEach(c=>{ const a=c.ownerName||c.owner||'未知'; if(!map[a])map[a]={name:a,total:0,new:0,contacting:0,offer:0,closed:0,lost:0,commission:0}; map[a].total++; if(map[a][c.status]!==undefined)map[a][c.status]++; }); deals.forEach(d=>{ const y=new Date(d.date).getFullYear(), m=new Date(d.date).getMonth()+1; let i=false; if(dashTimeFrame==='all')i=true; else if(dashTimeFrame==='year')i=y===statYear; else if(dashTimeFrame==='month')i=y===statYear&&m===statMonth; if(i){ const amt=Number(d.commission)||0; if(d.distributions?.length>0)d.distributions.forEach(dist=>{ const an=dist.agentName||dist.userId; if(!map[an])map[an]={name:an,total:0,new:0,contacting:0,offer:0,closed:0,lost:0,commission:0}; map[an].commission+=Number(dist.amount)||0; }); else { const an=d.agentName||'未知'; if(!map[an])map[an]={name:an,total:0,new:0,contacting:0,offer:0,closed:0,lost:0,commission:0}; map[an].commission+=amt; } } }); return Object.values(map).sort((a,b)=>b.commission-a.commission); }, [customers,deals,dashTimeFrame,statYear,statMonth,allUsers]);
   const handleExportExcel = () => { setIsExporting(true); setTimeout(()=>{ alert("匯出功能已觸發"); setIsExporting(false); setShowExportMenu(false); },1000); };
 
   if (loading) return <div className="min-h-screen flex items-center justify-center bg-gray-100 dark:bg-slate-950"><Loader2 className="w-8 h-8 animate-spin text-blue-600" /></div>;
   if (view === 'login') return <LoginScreen onLogin={handleLogin} onRegister={handleRegister} loading={loading} darkMode={darkMode} />;
   if (view === 'add') return <CustomerForm onSubmit={handleAddCustomer} onCancel={() => setView('list')} appSettings={appSettings} companyProjects={companyProjects} projectAds={projectAds} darkMode={darkMode} allUsers={allUsers} />;
   if (view === 'edit' && selectedCustomer) return <CustomerForm onSubmit={handleEditCustomer} onCancel={() => setView('detail')} initialData={selectedCustomer} appSettings={appSettings} companyProjects={companyProjects} projectAds={projectAds} darkMode={darkMode} allUsers={allUsers} />;
-  if (view === 'detail' && selectedCustomer) return <CustomerDetail customer={selectedCustomer} currentUser={currentUser} onEdit={() => setView('edit')} onDelete={handleDeleteCustomer} onAddNote={handleAddNote} onDeleteNote={handleDeleteNote} onBack={() => setView('list')} darkMode={darkMode} onQuickUpdate={handleQuickUpdate} />;
+  // ★★★ 傳遞 allCustomers={customers} 給 CustomerDetail ★★★
+  if (view === 'detail' && selectedCustomer) return <CustomerDetail customer={selectedCustomer} allCustomers={customers} currentUser={currentUser} onEdit={() => setView('edit')} onDelete={handleDeleteCustomer} onAddNote={handleAddNote} onDeleteNote={handleDeleteNote} onBack={() => setView('list')} darkMode={darkMode} onQuickUpdate={handleQuickUpdate} />;
 
   return (
     <div className={`min-h-screen w-full transition-colors duration-300 ${darkMode ? 'dark bg-slate-950 text-slate-100' : 'bg-gray-50 text-gray-800'} overflow-x-hidden`} style={{ colorScheme: darkMode ? 'dark' : 'light' }}>
       {incomingBroadcast && <BroadcastOverlay data={incomingBroadcast} isPresenter={myBroadcastStatus} onClose={handleOverlayClose} />}
       <NotificationModal notifications={notifications} onClose={() => setNotifications([])} onQuickUpdate={handleQuickUpdate} />
       {view === 'list' && <Marquee text={announcement} darkMode={darkMode} />}
-      {activeTab === 'clients' ? 
-        /* ★★★ 傳遞 onUpdateProjects ★★★ */
-        <ClientsView 
-            companyProjects={companyProjects}
-            onUpdateProjects={handleUpdateProjects}
-            customers={customers} currentUser={currentUser} darkMode={darkMode} toggleDarkMode={toggleDarkMode} handleLogout={handleLogout} listMode={listMode} setListMode={setListMode} listYear={listYear} setListYear={setListYear} listMonth={listMonth} setListMonth={setListMonth} listWeekDate={listWeekDate} setListWeekDate={setListWeekDate} searchTerm={searchTerm} setSearchTerm={setSearchTerm} loading={loading} isAdmin={isAdmin} setView={setView} setSelectedCustomer={setSelectedCustomer} onImport={handleBatchImport} onBatchDelete={handleBatchDelete} onBroadcast={handleBroadcast} 
-        /> 
-        : 
+      {activeTab === 'clients' ? <ClientsView companyProjects={companyProjects} onUpdateProjects={handleUpdateProjects} customers={customers} currentUser={currentUser} darkMode={darkMode} toggleDarkMode={toggleDarkMode} handleLogout={handleLogout} listMode={listMode} setListMode={setListMode} listYear={listYear} setListYear={setListYear} listMonth={listMonth} setListMonth={setListMonth} listWeekDate={listWeekDate} setListWeekDate={setListWeekDate} searchTerm={searchTerm} setSearchTerm={setSearchTerm} loading={loading} isAdmin={isAdmin} setView={setView} setSelectedCustomer={setSelectedCustomer} onImport={handleBatchImport} onBatchDelete={handleBatchDelete} onBroadcast={handleBroadcast} /> : 
         <DashboardView 
             saveSettings={saveSettingsToFirestore}
             customers={customers}
