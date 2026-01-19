@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { 
-  Loader2, Moon, Sun, LogOut, LayoutDashboard, List, Radio, X, MapPin, Bell, CheckCircle, AlertTriangle 
+  Loader2, Moon, Sun, LogOut, LayoutDashboard, List, Radio, X, MapPin, Bell, CheckCircle, AlertTriangle, BellRing
 } from 'lucide-react';
 
 import { initializeApp, getApps, getApp } from 'firebase/app';
@@ -41,8 +41,8 @@ const db = getFirestore(app);
 const BroadcastOverlay = ({ data, onClose, isPresenter }) => {
     if (!data) return null;
     const isCase = ['賣方', '出租', '出租方'].includes(data.category);
+    const isRental = data.category.includes('出租');
     const handleClose = () => { if (isPresenter) { if(confirm("您是廣播發起人，關閉視窗將結束所有人的廣播，確定嗎？")) onClose(true); } else onClose(false); };
-
     return (
         <div className="fixed inset-0 z-[100] bg-black/60 text-white flex flex-col items-center justify-center p-4 overflow-y-auto animate-in fade-in zoom-in duration-300 backdrop-blur-md">
             <button onClick={handleClose} className="fixed top-5 right-5 p-2 bg-white/20 rounded-full hover:bg-white/40 transition-colors z-[110]"><X className="w-8 h-8"/></button>
@@ -56,16 +56,17 @@ const BroadcastOverlay = ({ data, onClose, isPresenter }) => {
                         <div className="flex items-center gap-3 mb-2"><span className={`px-3 py-1 rounded-full text-sm font-bold ${isCase ? 'bg-orange-500/20 text-orange-400' : 'bg-blue-500/20 text-blue-400'}`}>{data.category}</span><span className="bg-gray-700 px-3 py-1 rounded-full text-sm">{data.status}</span></div>
                         <h1 className="text-4xl md:text-5xl font-black tracking-tight leading-tight mb-2">{isCase ? (data.caseName || data.name) : data.name}</h1>
                         <div className="text-2xl text-gray-300 font-medium">{isCase ? (data.landNo || data.reqRegion) : data.reqRegion}</div>
+                        <div className="mt-4 flex flex-wrap gap-4">
+                            <div className="bg-white/10 px-3 py-1 rounded text-sm"><span className="text-gray-400">來源：</span> {data.source || '未填寫'}</div>
+                            {!isCase && <div className="bg-white/10 px-3 py-1 rounded text-sm"><span className="text-gray-400">有興趣案場：</span> {data.project || '未填寫'}</div>}
+                        </div>
                     </div>
                     <div className="text-right">
-                        <div className="text-gray-400 text-sm font-bold mb-1">{isCase ? (data.category.includes('出租') ? '租金' : '開價') : '預算'}</div>
+                        <div className="text-gray-400 text-sm font-bold mb-1">{isCase ? (isRental ? '租金' : '開價') : '預算'}</div>
                         <div className="text-5xl font-black text-green-400 font-mono">
                             {isCase ? data.totalPrice : data.value?.toLocaleString()}
-                            <span className="text-2xl ml-1 text-gray-500">
-                                {isCase && data.category.includes('出租') ? (Number(data.totalPrice) < 1000 ? '萬' : '元') : '萬'}
-                            </span>
+                            <span className="text-2xl ml-1 text-gray-500">{isCase && isRental ? '元' : '萬'}</span>
                         </div>
-                        {isCase && data.unitPrice && !data.category.includes('出租') && <div className="text-xl text-gray-400 mt-1">單價 <span className="text-white font-bold">{data.unitPrice}</span> 元/坪</div>}
                     </div>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
@@ -76,7 +77,6 @@ const BroadcastOverlay = ({ data, onClose, isPresenter }) => {
                     <div className="space-y-6">
                         <div className="bg-white/5 p-5 rounded-2xl space-y-4">
                             <div className="flex justify-between items-center"><span className="text-gray-400">專員</span><div className="flex flex-wrap gap-1 justify-end">{(data.agents && data.agents.length > 0 ? data.agents : [data.ownerName]).map(a => <span key={a} className="bg-blue-600 px-2 py-1 rounded text-xs font-bold">{a}</span>)}</div></div>
-                            <div className="flex justify-between border-t border-gray-700 pt-3"><span className="text-gray-400">電話</span><span className="font-mono font-bold text-xl">{data.phone}</span></div>
                         </div>
                         {isCase && data.googleMapUrl && <a href={data.googleMapUrl} target="_blank" rel="noreferrer" className="block w-full bg-blue-600 hover:bg-blue-500 text-white text-center py-4 rounded-xl font-bold text-xl transition-colors shadow-lg flex items-center justify-center gap-2"><MapPin className="w-6 h-6"/> 開啟 Google 地圖</a>}
                     </div>
@@ -92,7 +92,7 @@ const NotificationModal = ({ notifications, onClose, onQuickUpdate }) => {
         <div className="fixed inset-0 z-[90] bg-black/70 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in">
             <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden border-2 border-red-500">
                 <div className="bg-red-500 p-4 text-white flex justify-between items-center">
-                    <h3 className="font-bold text-lg flex items-center gap-2"><AlertTriangle className="w-6 h-6"/> 待辦事項提醒 ({notifications.length})</h3>
+                    <h3 className="font-bold text-lg flex items-center gap-2"><BellRing className="w-6 h-6"/> 待辦與聯繫提醒 ({notifications.length})</h3>
                     <button onClick={onClose} className="p-1 hover:bg-red-600 rounded-full"><X/></button>
                 </div>
                 <div className="p-4 max-h-[60vh] overflow-y-auto space-y-3">
@@ -100,21 +100,18 @@ const NotificationModal = ({ notifications, onClose, onQuickUpdate }) => {
                         <div key={idx} className="flex justify-between items-start p-3 bg-gray-50 dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700">
                             <div>
                                 <h4 className="font-bold text-gray-800 dark:text-white flex items-center gap-2">
-                                    {item.type === 'commission' ? '📄 委託即將到期' : '💰 代書款項期限'}
+                                    {item.type === 'contact' ? `📞 [${item.level}級] 需聯繫客戶` : (item.type === 'commission' ? '📄 委託即將到期' : '💰 代書款項期限')}
                                 </h4>
                                 <div className="text-sm text-gray-600 dark:text-gray-400 mt-1 font-bold">{item.name} <span className="font-normal text-xs">({item.category})</span></div>
                                 {item.type === 'payment' && <div className="text-xs text-blue-500 font-bold">項目: {item.itemName}</div>}
-                                <div className="text-xs text-red-500 mt-1 font-bold">期限：{item.date} (剩 {item.days} 天)</div>
+                                {item.type === 'contact' ? (
+                                    <div className="text-xs text-red-500 mt-1 font-bold">上次聯繫：{item.lastDate} (已過 {item.days} 天)</div>
+                                ) : (
+                                    <div className="text-xs text-red-500 mt-1 font-bold">期限：{item.date} (剩 {item.days} 天)</div>
+                                )}
                             </div>
-                            <button 
-                                onClick={() => {
-                                    if(confirm(`確認標記為完成？`)) {
-                                        onQuickUpdate(item);
-                                    }
-                                }}
-                                className="px-3 py-1.5 bg-green-100 text-green-700 hover:bg-green-200 rounded-lg text-xs font-bold flex items-center gap-1 transition-colors"
-                            >
-                                <CheckCircle className="w-3 h-3"/> 完成
+                            <button onClick={() => { const msg = item.type === 'contact' ? "確認已聯繫？(將更新最後聯絡時間為今天)" : "確認標記為完成？"; if(confirm(msg)) { onQuickUpdate(item); } }} className="px-3 py-1.5 bg-green-100 text-green-700 hover:bg-green-200 rounded-lg text-xs font-bold flex items-center gap-1 transition-colors">
+                                <CheckCircle className="w-3 h-3"/> {item.type === 'contact' ? '已聯繫' : '完成'}
                             </button>
                         </div>
                     ))}
@@ -122,6 +119,16 @@ const NotificationModal = ({ notifications, onClose, onQuickUpdate }) => {
             </div>
         </div>
     );
+};
+
+const getCurrentWeekStr = () => {
+    const today = new Date();
+    const d = new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate()));
+    const dayNum = d.getUTCDay() || 7;
+    d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+    const yearStart = new Date(Date.UTC(d.getUTCFullYear(),0,1));
+    const weekNo = Math.ceil((((d - yearStart) / 86400000) + 1)/7);
+    return `${d.getUTCFullYear()}-W${String(weekNo).padStart(2, '0')}`;
 };
 
 export default function App() {
@@ -138,9 +145,11 @@ export default function App() {
   const [incomingBroadcast, setIncomingBroadcast] = useState(null);
   const [myBroadcastStatus, setMyBroadcastStatus] = useState(false);
   const [notifications, setNotifications] = useState([]);
+  const [systemAlerts, setSystemAlerts] = useState([]); 
 
   const [companyProjects, setCompanyProjects] = useState({});
   const [projectAds, setProjectAds] = useState({}); 
+  const [adWalls, setAdWalls] = useState([]); 
   const [appSettings, setAppSettings] = useState({
       sources: DEFAULT_SOURCES,
       categories: DEFAULT_CATEGORIES,
@@ -165,6 +174,7 @@ export default function App() {
   const [listWeekDate, setListWeekDate] = useState(new Date().toISOString().split('T')[0]); 
   const [statYear, setStatYear] = useState(new Date().getFullYear());
   const [statMonth, setStatMonth] = useState(new Date().getMonth() + 1);
+  const [statWeek, setStatWeek] = useState(getCurrentWeekStr());
 
   const [allUsers, setAllUsers] = useState([]);
   const [showExportMenu, setShowExportMenu] = useState(false);
@@ -192,14 +202,25 @@ export default function App() {
       }
   }, [darkMode]);
 
-  // Notifications logic
   useEffect(() => {
       if (!customers || customers.length === 0 || !currentUser) return;
       const today = new Date();
       const tempNotifications = [];
-
       customers.forEach(c => {
           if (c.owner === currentUser.username) {
+              const lastDateStr = c.lastContact || (c.createdAt ? (typeof c.createdAt === 'string' ? c.createdAt.split('T')[0] : '') : '');
+              if (lastDateStr) {
+                  const lastDate = new Date(lastDateStr);
+                  if (!isNaN(lastDate.getTime())) {
+                      const diffTime = Math.abs(today - lastDate);
+                      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                      let threshold = 30; 
+                      if (c.level === 'A') threshold = 3; else if (c.level === 'B') threshold = 7;
+                      if (diffDays >= threshold && c.status !== 'closed' && c.status !== 'lost') {
+                          tempNotifications.push({ id: c.id, name: c.name, category: c.category, type: 'contact', level: c.level, lastDate: lastDateStr, days: diffDays });
+                      }
+                  }
+              }
               if (['賣方', '出租', '出租方'].includes(c.category) && c.commissionEndDate && !c.isRenewed) {
                   const endDate = new Date(c.commissionEndDate);
                   const diffDays = Math.ceil((endDate - today) / (86400000));
@@ -213,10 +234,7 @@ export default function App() {
                           const payDate = new Date(item.payDate);
                           const diffDays = Math.ceil((payDate - today) / (86400000));
                           if (diffDays >= 0 && diffDays <= 7) {
-                              tempNotifications.push({ 
-                                  id: c.id, name: c.name, category: c.category, type: 'payment', 
-                                  date: item.payDate, days: diffDays, itemName: item.item || '未命名款項', itemIndex: index, scribeDetails: c.scribeDetails 
-                              });
+                              tempNotifications.push({ id: c.id, name: c.name, category: c.category, type: 'payment', date: item.payDate, days: diffDays, itemName: item.item || '未命名款項', itemIndex: index, scribeDetails: c.scribeDetails });
                           }
                       }
                   });
@@ -228,7 +246,10 @@ export default function App() {
 
   const handleQuickUpdate = async (notiItem) => {
       try {
-          if (notiItem.type === 'commission') {
+          if (notiItem.type === 'contact') {
+              const todayStr = new Date().toISOString().split('T')[0];
+              await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'customers', notiItem.id), { lastContact: todayStr });
+          } else if (notiItem.type === 'commission') {
               await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'customers', notiItem.id), { isRenewed: true });
           } else if (notiItem.type === 'payment') {
               const updatedDetails = [...notiItem.scribeDetails];
@@ -240,6 +261,28 @@ export default function App() {
           setNotifications(prev => prev.filter(n => !(n.id === notiItem.id && n.type === notiItem.type && n.itemIndex === notiItem.itemIndex)));
       } catch(e) { console.error(e); }
   };
+
+  const handleResolveAlert = async (id) => {
+      if(!currentUser?.companyCode) return;
+      try {
+          await deleteDoc(doc(db, 'artifacts', appId, 'public', 'system', 'alerts', id));
+      } catch(e) { console.error("消除警示失敗", e); }
+  };
+
+  useEffect(() => {
+      if (!currentUser?.companyCode || (currentUser.role !== 'admin' && currentUser.role !== 'super_admin')) return;
+      const alertsRef = collection(db, 'artifacts', appId, 'public', 'system', 'alerts');
+      const q = query(alertsRef, where("companyCode", "==", currentUser.companyCode));
+      const unsubscribe = onSnapshot(q, (snapshot) => {
+          const alerts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+          const recentAlerts = alerts.filter(a => {
+              const d = new Date(a.timestamp?.toDate ? a.timestamp.toDate() : a.timestamp);
+              return (new Date() - d) / (1000 * 60 * 60 * 24) < 7; 
+          });
+          setSystemAlerts(recentAlerts.sort((a,b) => b.timestamp - a.timestamp));
+      });
+      return () => unsubscribe();
+  }, [currentUser]);
 
   useEffect(() => {
       if (!currentUser?.companyCode) return;
@@ -310,9 +353,10 @@ export default function App() {
     const unsubscribe = onSnapshot(settingsDocRef, (docSnap) => {
       if (docSnap.exists()) {
         const data = docSnap.data();
-        if (data.projects) setCompanyProjects(data.projects);
-        if (data.projectAds) setProjectAds(data.projectAds);
-        if (data.announcement) setAnnouncement(data.announcement);
+        setCompanyProjects(data.projects || DEFAULT_PROJECTS || {});
+        setProjectAds(data.projectAds || {}); 
+        setAnnouncement(data.announcement || SYSTEM_ANNOUNCEMENT);
+        setAdWalls(data.adWalls || []);
         setAppSettings({
             sources: data.sources || DEFAULT_SOURCES,
             categories: data.categories || DEFAULT_CATEGORIES,
@@ -323,11 +367,12 @@ export default function App() {
         const initData = { 
             projects: DEFAULT_PROJECTS, projectAds: {}, 
             sources: DEFAULT_SOURCES, categories: DEFAULT_CATEGORIES, levels: DEFAULT_LEVELS, 
-            announcement: SYSTEM_ANNOUNCEMENT, scriveners: []
+            announcement: SYSTEM_ANNOUNCEMENT, scriveners: [], adWalls: []
         };
         setCompanyProjects(DEFAULT_PROJECTS || {});
         setAppSettings({ sources: DEFAULT_SOURCES, categories: DEFAULT_CATEGORIES, levels: DEFAULT_LEVELS, scriveners: [] });
         setProjectAds({});
+        setAdWalls([]);
         setAnnouncement(SYSTEM_ANNOUNCEMENT);
         setDoc(settingsDocRef, initData, { merge: true });
       }
@@ -461,8 +506,14 @@ export default function App() {
       try { const batch = writeBatch(db); ids.forEach(id => batch.delete(doc(db, 'artifacts', appId, 'public', 'data', 'customers', id))); await batch.commit(); alert("刪除成功"); } catch (e) { alert("刪除失敗"); } finally { setLoading(false); }
   };
 
+  // ★★★ 補回 handleCustomerClick 與 isAdmin ★★★
   const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'super_admin';
   const isSuperAdmin = currentUser?.role === 'super_admin';
+
+  const handleCustomerClick = (customer) => {
+      setSelectedCustomer(customer);
+      setView('detail');
+  };
 
   const handleEditCustomer = async (formData) => {
     if (selectedCustomer.owner !== currentUser.username && !isSuperAdmin) return alert("無權限");
@@ -472,6 +523,9 @@ export default function App() {
       if (updateData.createdAt) { const d = new Date(updateData.createdAt); if (!isNaN(d.getTime())) { updateData.createdAt = d; updateData.lastContact = d.toISOString().split('T')[0]; } else delete updateData.createdAt; }
       Object.keys(updateData).forEach(key => updateData[key] === undefined && delete updateData[key]);
       await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'customers', selectedCustomer.id), updateData);
+      
+      setSelectedCustomer({ ...selectedCustomer, ...updateData });
+      
       setView('detail');
     } catch (e) { alert("儲存失敗"); }
   };
@@ -486,12 +540,12 @@ export default function App() {
   
   const handleSaveAnnouncement = async (t) => { if(!currentUser?.companyCode)return; try{ await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'company_settings', currentUser.companyCode), {announcement:t}, {merge:true}); alert("更新成功"); }catch(e){} };
   
-  // ★★★ 關鍵修復：補回選項管理函式 ★★★
   const saveAppSettings = async (s) => { if(!currentUser?.companyCode)return; try{ await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'company_settings', currentUser.companyCode), s, {merge:true}); }catch(e){} };
 
   const handleAddOption = (type, val) => { 
-      if (Array.isArray(val) && type === 'scriveners') {
+      if (Array.isArray(val) && (type === 'scriveners' || type === 'adWalls')) {
           setAppSettings({...appSettings, [type]: val});
+          if (type === 'adWalls') setAdWalls(val);
           saveAppSettings({[type]: val});
           return;
       }
@@ -527,95 +581,178 @@ export default function App() {
   const toggleUserStatus = async (u) => { if(currentUser?.role!=='super_admin')return; try{ await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'app_users', u.id), {status:u.status==='suspended'?'active':'suspended'}); }catch(e){} };
   const handleDeleteUser = (u) => setPendingDelete({type:'user',item:u});
 
-  const handleSaveAd = () => { if(!adForm.name.trim()||!adManageProject)return; let c=projectAds[adManageProject]||[]; c=c.map(a=>typeof a==='string'?{id:Date.now()+Math.random(),name:a,startDate:'',endDate:''}:a); let u=isEditingAd?c.map(a=>a.id===adForm.id?adForm:a):[...c,{...adForm,id:Date.now()}]; const m={...projectAds,[adManageProject]:u}; setProjectAds(m); saveSettingsToFirestore(null,m); setAdForm({id:'',name:'',startDate:'',endDate:''}); setIsEditingAd(false); };
+  const handleSaveAd = async () => {
+      if (!adForm.name.trim() || !adManageProject || !currentUser?.companyCode) return;
+      
+      const currentAds = projectAds[adManageProject] || [];
+      const safeCurrentAds = Array.isArray(currentAds) ? currentAds : [];
+      
+      const normalizedAds = safeCurrentAds.map(a => 
+          typeof a === 'string' ? { id: Date.now() + Math.random(), name: a, startDate: '', endDate: '' } : a
+      );
+
+      let updatedList;
+      if (isEditingAd) {
+          updatedList = normalizedAds.map(a => a.id === adForm.id ? adForm : a);
+      } else {
+          updatedList = [...normalizedAds, { ...adForm, id: Date.now() }];
+      }
+
+      const newProjectAds = { ...projectAds, [adManageProject]: updatedList };
+      setProjectAds(newProjectAds);
+      
+      try {
+          const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'company_settings', currentUser.companyCode);
+          await updateDoc(docRef, {
+              [`projectAds.${adManageProject}`]: updatedList
+          });
+      } catch (e) {
+          console.error("Save Ad Error:", e);
+          alert("儲存失敗，請重試");
+      }
+      
+      setAdForm({ id: '', name: '', startDate: '', endDate: '' });
+      setIsEditingAd(false);
+  };
+
   const handleEditAdInit = (a) => { setAdForm(typeof a==='string'?{id:a,name:a,startDate:'',endDate:''}:a); setIsEditingAd(true); };
   const triggerDeleteAd = (i) => setPendingDelete({type:'ad',region:adManageProject,item:i});
   const handleEditAdFromDashboard = (a,p) => { setAdManageProject(p); setAdForm(typeof a==='string'?{id:a,name:a,startDate:'',endDate:''}:a); setIsEditingAd(true); };
   const handleDeleteAdFromDashboard = (a,p) => setPendingDelete({type:'ad',region:p,item:a});
-  const executeDelete = async () => { if(!pendingDelete)return; const {type,region,item}=pendingDelete; if(type==='user')try{await deleteDoc(doc(db,'artifacts',appId,'public','data','app_users',item.id))}catch(e){} else if(type==='ad'){ let c=projectAds[region]||[]; const u=c.filter(a=>(a.id?a.id!==item.id:a!==item)); const m={...projectAds,[region]:u}; setProjectAds(m); saveSettingsToFirestore(null,m); } else { let u={...companyProjects}; if(type==='region')delete u[region]; else u[region]=u[region].filter(p=>p!==item); setCompanyProjects(u); saveSettingsToFirestore(u,null); } setPendingDelete(null); };
+  const executeDelete = async () => { 
+      if(!pendingDelete) return; 
+      const {type,region,item} = pendingDelete; 
+      
+      if(type==='user'){
+          try{await deleteDoc(doc(db,'artifacts',appId,'public','data','app_users',item.id))}catch(e){} 
+      } else if(type==='ad'){ 
+          let c = projectAds[region] || [];
+          const u = c.filter(a => (a.id ? a.id !== item.id : a !== item));
+          
+          const newProjectAds = { ...projectAds, [region]: u };
+          setProjectAds(newProjectAds); 
+          
+          if (currentUser?.companyCode) {
+              const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'company_settings', currentUser.companyCode);
+              await updateDoc(docRef, { [`projectAds.${region}`]: u }); 
+          }
+      } else { 
+          let u={...companyProjects}; 
+          if(type==='region') delete u[region]; 
+          else u[region]=u[region].filter(p=>p!==item); 
+          setCompanyProjects(u); 
+          saveSettingsToFirestore(u,null); 
+      } 
+      setPendingDelete(null); 
+  };
 
   const handleSaveDeal = async (dealData) => { try{ const id=dealData.id||Date.now().toString(); let ag=dealData.agentName||(dealData.distributions?.[0]?.agentName)||(allUsers.find(u=>u.username===dealData.agent)?.name)||dealData.agent||currentUser?.name||"未知"; const n={...dealData,id,createdAt:dealData.createdAt||new Date().toISOString(),companyCode:currentUser.companyCode,agentName:ag}; await setDoc(doc(db,'artifacts',appId,'public','data','deals',id),n,{merge:true}); alert("已儲存"); }catch(e){alert("失敗");} };
   const handleDeleteDeal = async (id) => { if(!confirm("刪除？"))return; try{await deleteDoc(doc(db,'artifacts',appId,'public','data','deals',id))}catch(e){} };
 
-  // ★★★ Agent Stats 防呆 ★★★
+  const checkDateMatch = (dateStr, timeFrame, targetYear, targetMonth, targetWeekStr) => {
+      if (!dateStr) return false;
+
+      let date;
+      const strVal = String(dateStr).trim();
+      
+      const rocMatch = strVal.match(/^(\d{2,3})[./-](\d{1,2})[./-](\d{1,2})/);
+      if (rocMatch) {
+          let y = parseInt(rocMatch[1]);
+          const m = parseInt(rocMatch[2]);
+          const d = parseInt(rocMatch[3]);
+          if (y < 1000) y += 1911; 
+          date = new Date(y, m - 1, d);
+      } else {
+          date = new Date(dateStr);
+      }
+
+      if (isNaN(date.getTime())) return false;
+
+      if (timeFrame === 'all') return true;
+      if (timeFrame === 'year') return date.getFullYear() === targetYear;
+      if (timeFrame === 'month') return date.getFullYear() === targetYear && (date.getMonth() + 1) === targetMonth;
+      if (timeFrame === 'week') {
+          if (!targetWeekStr) return false;
+          const [wYear, wWeek] = targetWeekStr.split('-W').map(Number);
+          if (!wYear || !wWeek) return false;
+
+          const simpleDate = new Date(wYear, 0, 1 + (wWeek - 1) * 7);
+          const dow = simpleDate.getDay();
+          const ISOweekStart = simpleDate;
+          if (dow <= 4)
+              ISOweekStart.setDate(simpleDate.getDate() - simpleDate.getDay() + 1);
+          else
+              ISOweekStart.setDate(simpleDate.getDate() + 8 - simpleDate.getDay());
+          
+          const startDate = new Date(ISOweekStart);
+          startDate.setHours(0,0,0,0);
+          
+          const endDate = new Date(startDate);
+          endDate.setDate(startDate.getDate() + 7);
+
+          return date >= startDate && date < endDate;
+      }
+      return false;
+  };
+
   const agentStats = useMemo(() => { 
       if (!Array.isArray(allUsers) || !Array.isArray(deals)) return [];
-      
       const map = {}; 
-      allUsers.forEach(u => {
-          if (u && u.name) {
-              map[u.name] = { name: u.name, total: 0, commission: 0 };
-          }
-      });
-
+      allUsers.forEach(u => { if (u && u.name) { map[u.name] = { name: u.name, total: 0, commission: 0 }; } });
+      
       deals.forEach(d => { 
-         if (!d || (!d.date && !d.signDate && !d.dealDate)) return;
-         const dateRef = new Date(d.signDate || d.dealDate || d.date); 
-         if (isNaN(dateRef.getTime())) return;
-
-         const y = dateRef.getFullYear();
-         const m = dateRef.getMonth() + 1; 
-         
-         let i = false; 
-         if (dashTimeFrame === 'all') i = true; 
-         else if (dashTimeFrame === 'year') i = (y === statYear); 
-         else if (dashTimeFrame === 'month') i = (y === statYear && m === statMonth); 
-         
-         if (i) {
-             if (Array.isArray(d.devAgents)) {
-                 d.devAgents.forEach(ag => {
-                     if (ag && ag.user && map[ag.user]) {
-                         const amt = parseFloat(String(ag.amount || 0).replace(/,/g, '')) || 0;
-                         map[ag.user].commission += amt;
-                         map[ag.user].total += 1;
-                     }
-                 });
-             }
-             if (Array.isArray(d.salesAgents)) {
-                 d.salesAgents.forEach(ag => {
-                     if (ag && ag.user && map[ag.user]) {
-                         const amt = parseFloat(String(ag.amount || 0).replace(/,/g, '')) || 0;
-                         map[ag.user].commission += amt;
-                         map[ag.user].total += 1; 
-                     }
-                 });
-             }
+         const dateRef = d.dealDate || d.signDate || d.date; 
+         if (checkDateMatch(dateRef, dashTimeFrame, statYear, statMonth, statWeek)) {
+             if (Array.isArray(d.devAgents)) { d.devAgents.forEach(ag => { if (ag && ag.user && map[ag.user]) { const amt = parseFloat(String(ag.amount || 0).replace(/,/g, '')) || 0; map[ag.user].commission += amt; map[ag.user].total += 1; } }); }
+             if (Array.isArray(d.salesAgents)) { d.salesAgents.forEach(ag => { if (ag && ag.user && map[ag.user]) { const amt = parseFloat(String(ag.amount || 0).replace(/,/g, '')) || 0; map[ag.user].commission += amt; map[ag.user].total += 1; } }); }
          }
       });
       return Object.values(map).sort((a,b) => b.commission - a.commission).filter(a => a.commission > 0); 
-  }, [deals, dashTimeFrame, statYear, statMonth, allUsers]);
+  }, [deals, dashTimeFrame, statYear, statMonth, statWeek, allUsers]);
 
-  // ★★★ Dashboard Stats 防呆 ★★★
   const dashboardStats = useMemo(() => { 
-      let t = 0, w = 0; 
+      let totalRevenue = 0;
+      let wonCount = 0;
+      let newCases = 0;
+      let newBuyers = 0;
+
       if (Array.isArray(deals)) {
           deals.forEach(d => { 
-              if (!d || (!d.date && !d.signDate && !d.dealDate)) return;
-              const dateRef = new Date(d.signDate || d.dealDate || d.date); 
-              if (isNaN(dateRef.getTime())) return;
-
-              const y = dateRef.getFullYear();
-              const m = dateRef.getMonth() + 1; 
-              let i = false; 
-              if (dashTimeFrame === 'all') i = true; 
-              else if (dashTimeFrame === 'year') i = (y === statYear); 
-              else if (dashTimeFrame === 'month') i = (y === statYear && m === statMonth); 
-              if (i) {
-                  const sub = parseFloat(String(d.subtotal || 0).replace(/,/g, '')) || 0;
-                  t += sub;
-                  w++;
+              const dateRef = d.dealDate || d.signDate || d.date;
+              if (checkDateMatch(dateRef, dashTimeFrame, statYear, statMonth, statWeek)) { 
+                  const sub = parseFloat(String(d.subtotal || 0).replace(/,/g, '')) || 0; 
+                  totalRevenue += sub; 
+                  wonCount++; 
               } 
           }); 
       }
-      return { totalRevenue: t, counts: { total: Array.isArray(customers) ? customers.length : 0, won: w } }; 
-  }, [customers, deals, dashTimeFrame, statYear, statMonth]);
+
+      if (Array.isArray(customers)) {
+          customers.forEach(c => {
+              let dateRef = c.createdAt;
+              if (dateRef && typeof dateRef === 'object' && dateRef.seconds) {
+                  dateRef = new Date(dateRef.seconds * 1000);
+              }
+              
+              if (checkDateMatch(dateRef, dashTimeFrame, statYear, statMonth, statWeek)) {
+                  if (['賣方', '出租', '出租方'].includes(c.category)) {
+                      newCases++;
+                  } else {
+                      newBuyers++;
+                  }
+              }
+          });
+      }
+
+      return { totalRevenue, counts: { won: wonCount, cases: newCases, buyers: newBuyers } }; 
+  }, [customers, deals, dashTimeFrame, statYear, statMonth, statWeek]);
 
   const handleExportExcel = () => { setIsExporting(true); setTimeout(()=>{ alert("匯出功能已觸發"); setIsExporting(false); setShowExportMenu(false); },1000); };
 
   if (loading) return <div className="min-h-screen flex items-center justify-center bg-gray-100 dark:bg-slate-950"><Loader2 className="w-8 h-8 animate-spin text-blue-600" /></div>;
   if (view === 'login') return <LoginScreen onLogin={handleLogin} onRegister={handleRegister} loading={loading} darkMode={darkMode} />;
-  if (view === 'add') return <CustomerForm onSubmit={handleAddCustomer} onCancel={() => setView('list')} appSettings={appSettings} companyProjects={companyProjects} projectAds={projectAds} darkMode={darkMode} allUsers={allUsers} />;
-  if (view === 'edit' && selectedCustomer) return <CustomerForm onSubmit={handleEditCustomer} onCancel={() => setView('detail')} initialData={selectedCustomer} appSettings={appSettings} companyProjects={companyProjects} projectAds={projectAds} darkMode={darkMode} allUsers={allUsers} />;
+  if (view === 'add') return <CustomerForm customers={customers} onSubmit={handleAddCustomer} onCancel={() => setView('list')} appSettings={appSettings} companyProjects={companyProjects} projectAds={projectAds} darkMode={darkMode} allUsers={allUsers} currentUser={currentUser} />;
+  if (view === 'edit' && selectedCustomer) return <CustomerForm customers={customers} onSubmit={handleEditCustomer} onCancel={() => setView('detail')} initialData={selectedCustomer} appSettings={appSettings} companyProjects={companyProjects} projectAds={projectAds} darkMode={darkMode} allUsers={allUsers} currentUser={currentUser} />;
   if (view === 'detail' && selectedCustomer) return <CustomerDetail customer={selectedCustomer} allCustomers={customers} currentUser={currentUser} onEdit={() => setView('edit')} onDelete={handleDeleteCustomer} onAddNote={handleAddNote} onDeleteNote={handleDeleteNote} onBack={() => setView('list')} darkMode={darkMode} onQuickUpdate={handleQuickUpdate} />;
 
   return (
@@ -623,19 +760,56 @@ export default function App() {
       {incomingBroadcast && <BroadcastOverlay data={incomingBroadcast} isPresenter={myBroadcastStatus} onClose={handleOverlayClose} />}
       <NotificationModal notifications={notifications} onClose={() => setNotifications([])} onQuickUpdate={handleQuickUpdate} />
       {view === 'list' && <Marquee text={announcement} darkMode={darkMode} />}
-      {activeTab === 'clients' ? <ClientsView companyProjects={companyProjects} onUpdateProjects={handleUpdateProjects} customers={customers} currentUser={currentUser} darkMode={darkMode} toggleDarkMode={toggleDarkMode} handleLogout={handleLogout} listMode={listMode} setListMode={setListMode} listYear={listYear} setListYear={setListYear} listMonth={listMonth} setListMonth={setListMonth} listWeekDate={listWeekDate} setListWeekDate={setListWeekDate} searchTerm={searchTerm} setSearchTerm={setSearchTerm} loading={loading} isAdmin={isAdmin} setView={setView} setSelectedCustomer={setSelectedCustomer} onImport={handleBatchImport} onBatchDelete={handleBatchDelete} onBroadcast={handleBroadcast} /> : 
+      {activeTab === 'clients' ? <ClientsView 
+            companyProjects={companyProjects} 
+            onUpdateProjects={handleUpdateProjects} 
+            customers={customers} 
+            currentUser={currentUser} 
+            darkMode={darkMode} 
+            toggleDarkMode={toggleDarkMode} 
+            handleLogout={handleLogout} 
+            listMode={listMode} 
+            setListMode={setListMode} 
+            listYear={listYear} 
+            setListYear={setListYear} 
+            listMonth={listMonth} 
+            setListMonth={setListMonth} 
+            listWeekDate={listWeekDate} 
+            setListWeekDate={setListWeekDate} 
+            searchTerm={searchTerm} 
+            setSearchTerm={setSearchTerm} 
+            loading={loading} 
+            isAdmin={isAdmin} 
+            setView={setView} 
+            setSelectedCustomer={setSelectedCustomer} 
+            onCustomerClick={handleCustomerClick} 
+            onImport={handleBatchImport} 
+            onBatchDelete={handleBatchDelete} 
+            onBroadcast={handleBroadcast} /> : 
         <DashboardView 
             saveSettings={saveSettingsToFirestore}
             customers={customers}
             isAdmin={isAdmin} isSuperAdmin={isSuperAdmin} currentUser={currentUser} darkMode={darkMode} toggleDarkMode={toggleDarkMode} handleLogout={handleLogout} dashboardStats={dashboardStats} dashTimeFrame={dashTimeFrame} setDashTimeFrame={setDashTimeFrame} agentStats={agentStats} companyProjects={companyProjects} projectAds={projectAds} allUsers={allUsers} newRegionName={newRegionName} setNewRegionName={setNewRegionName} newProjectNames={newProjectNames} setNewProjectNames={setNewProjectNames} onAddRegion={handleAddRegion} onDeleteRegion={handleDeleteRegion} onAddProject={handleAddProject} onDeleteProject={handleDeleteProject} onToggleUser={toggleUserStatus} onDeleteUser={handleDeleteUser} onManageAd={setAdManageProject} adManageProject={adManageProject} setAdManageProject={setAdManageProject} adForm={adForm} setAdForm={setAdForm} isEditingAd={isEditingAd} setIsEditingAd={setIsEditingAd} dashboardView={dashboardView} setDashboardView={setDashboardView} handleExportExcel={handleExportExcel} isExporting={isExporting} showExportMenu={showExportMenu} setShowExportMenu={setShowExportMenu} appSettings={appSettings} onAddOption={handleAddOption} onDeleteOption={handleDeleteOption} onReorderOption={handleReorderOption} deals={deals} handleSaveDeal={handleSaveDeal} handleDeleteDeal={handleDeleteDeal} statYear={statYear} setStatYear={setStatYear} statMonth={statMonth} setStatMonth={setStatMonth} onSaveAd={handleSaveAd} onEditAdInit={handleEditAdInit} triggerDeleteAd={triggerDeleteAd} onEditAd={handleEditAdFromDashboard} onDeleteAd={handleDeleteAdFromDashboard} announcement={announcement} onSaveAnnouncement={handleSaveAnnouncement} 
+            adWalls={adWalls} 
+            systemAlerts={systemAlerts}
+            onResolveAlert={handleResolveAlert}
+            statWeek={statWeek} 
+            setStatWeek={setStatWeek} 
         />
       }
+      {/* ... (Bottom Nav & Modals 保持不變) ... */}
       <div className={`fixed bottom-0 w-full border-t flex justify-around items-center py-2 z-40 shadow-lg ${darkMode ? 'bg-slate-950 border-slate-800' : 'bg-white border-gray-200'}`}>
         <button onClick={() => setActiveTab('clients')} className={`flex flex-col items-center p-2 w-24 active:scale-95 transition-transform ${activeTab === 'clients' ? 'text-blue-500 font-bold' : 'text-gray-400'}`}><List className="w-6 h-6"/><span className="text-[10px] mt-1">列表</span></button>
-        {isAdmin && <button onClick={() => setActiveTab('dashboard')} className={`flex flex-col items-center p-2 w-24 active:scale-95 transition-transform ${activeTab === 'dashboard' ? 'text-blue-500 font-bold' : 'text-gray-400'}`}><LayoutDashboard className="w-6 h-6"/><span className="text-[10px] mt-1">後台</span></button>}
+        {isAdmin && (
+            <button onClick={() => setActiveTab('dashboard')} className={`relative flex flex-col items-center p-2 w-24 active:scale-95 transition-transform ${activeTab === 'dashboard' ? 'text-blue-500 font-bold' : 'text-gray-400'}`}>
+                <LayoutDashboard className="w-6 h-6"/>
+                {systemAlerts.length > 0 && <span className="absolute top-2 right-6 w-3 h-3 bg-red-500 rounded-full border-2 border-white dark:border-slate-900 animate-pulse"></span>}
+                <span className="text-[10px] mt-1">後台</span>
+            </button>
+        )}
       </div>
       {pendingDelete && <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[70] flex items-center justify-center p-4"><div className={`w-full max-w-sm p-6 rounded-2xl shadow-2xl transform transition-all ${darkMode ? 'bg-slate-900 text-white' : 'bg-white'}`}><div className="flex items-center gap-3 mb-4 text-red-500"><div className="p-2 bg-red-100 dark:bg-red-900/30 rounded-full"><div className="w-6 h-6 text-red-600">⚠️</div></div><h3 className="text-lg font-bold">確認刪除</h3></div><p className="text-sm opacity-80 mb-6 leading-relaxed">確定要刪除嗎？<br/><span className="text-red-500 font-bold text-xs mt-1 block font-bold">此操作無法復原。</span></p><div className="flex gap-3"><button onClick={() => setPendingDelete(null)} className="flex-1 py-3 rounded-xl font-bold bg-gray-100 dark:bg-slate-800 text-gray-600 dark:text-slate-300 hover:bg-gray-200 transition-colors">取消</button><button onClick={executeDelete} className="flex-1 py-3 rounded-xl font-bold bg-red-600 text-white hover:bg-red-700 shadow-lg shadow-red-600/30 transition-all active:scale-95">確認刪除</button></div></div></div>}
-      {adManageProject && <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4"><div className={`w-full max-w-md p-6 rounded-2xl shadow-2xl transform transition-all max-h-[85vh] overflow-y-auto ${darkMode ? 'bg-slate-900 text-white' : 'bg-white'}`}><div className="flex justify-between items-center mb-4 border-b dark:border-slate-800 pb-3"><h3 className="text-lg font-bold flex items-center gap-2">管理廣告: {adManageProject}</h3><button onClick={() => { setAdManageProject(null); setIsEditingAd(false); }} className="p-1 hover:bg-gray-100 dark:hover:bg-slate-800 rounded-full"><X/></button></div><div className="space-y-3 mb-6 bg-gray-50 dark:bg-slate-800/50 p-4 rounded-xl border border-gray-100 dark:border-slate-800"><input value={adForm.name} onChange={(e) => setAdForm({...adForm, name: e.target.value})} className={`w-full px-3 py-2 rounded-lg border text-sm outline-none notranslate ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300 text-gray-900'}`} placeholder="廣告名稱 (如: 591, FB)" autoComplete="off" /><div className="flex gap-2"><input type="date" value={adForm.startDate} onChange={(e) => setAdForm({...adForm, startDate: e.target.value})} className={`flex-1 px-3 py-2 rounded-lg border text-sm outline-none transition-colors ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300 text-gray-900'}`} /><input type="date" value={adForm.endDate} onChange={(e) => setAdForm({...adForm, endDate: e.target.value})} className={`flex-1 px-3 py-2 rounded-lg border text-sm outline-none transition-colors ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300 text-gray-900'}`} /></div><button onClick={onSaveAd} className="w-full bg-blue-600 text-white py-2 rounded-lg text-sm font-bold active:scale-95 transition-all shadow-md shadow-blue-600/20">{isEditingAd ? '儲存變更' : '新增廣告'}</button></div><div className="space-y-2">{(projectAds[adManageProject] || []).map((ad, idx) => { const adObj = typeof ad === 'string' ? { id: idx, name: ad, endDate: '' } : ad; return (<div key={adObj.id || idx} className="flex justify-between items-center p-3 rounded-lg border dark:border-slate-800 text-sm hover:border-blue-300 transition-colors"><div><span className="font-bold block">{adObj.name}</span></div><div className="flex gap-1"><button onClick={() => handleEditAdInit(ad)} className="p-2 text-blue-500 hover:bg-blue-50 dark:hover:bg-slate-800 rounded-full">✏️</button><button onClick={() => triggerDeleteAd(adObj)} className="p-2 text-red-500 hover:bg-red-50 dark:hover:bg-slate-800 rounded-full">🗑️</button></div></div>); })}</div></div></div>}
+      {adManageProject && <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4"><div className={`w-full max-w-md p-6 rounded-2xl shadow-2xl transform transition-all max-h-[85vh] overflow-y-auto ${darkMode ? 'bg-slate-900 text-white' : 'bg-white'}`}><div className="flex justify-between items-center mb-4 border-b dark:border-slate-800 pb-3"><h3 className="text-lg font-bold flex items-center gap-2">管理廣告: {adManageProject}</h3><button onClick={() => { setAdManageProject(null); setIsEditingAd(false); }} className="p-1 hover:bg-gray-100 dark:hover:bg-slate-800 rounded-full"><X/></button></div><div className="space-y-3 mb-6 bg-gray-50 dark:bg-slate-800/50 p-4 rounded-xl border border-gray-100 dark:border-slate-800"><input value={adForm.name} onChange={(e) => setAdForm({...adForm, name: e.target.value})} className={`w-full px-3 py-2 rounded-lg border text-sm outline-none notranslate ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300 text-gray-900'}`} placeholder="廣告名稱 (如: 591, FB)" autoComplete="off" /><div className="flex gap-2 items-center"><span className="text-xs text-gray-400">起</span><input type="date" value={adForm.startDate} onChange={(e) => setAdForm({...adForm, startDate: e.target.value})} className={`flex-1 px-3 py-2 rounded-lg border text-sm outline-none transition-colors ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300 text-gray-900'}`} /><span className="text-xs text-gray-400">迄</span><input type="date" value={adForm.endDate} onChange={(e) => setAdForm({...adForm, endDate: e.target.value})} className={`flex-1 px-3 py-2 rounded-lg border text-sm outline-none transition-colors ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300 text-gray-900'}`} /></div><button onClick={onSaveAd} className="w-full bg-blue-600 text-white py-2 rounded-lg text-sm font-bold active:scale-95 transition-all shadow-md shadow-blue-600/20">{isEditingAd ? '儲存變更' : '新增廣告'}</button></div><div className="space-y-2">{(projectAds[adManageProject] || []).map((ad, idx) => { const adObj = typeof ad === 'string' ? { id: idx, name: ad, endDate: '' } : ad; return (<div key={adObj.id || idx} className="flex justify-between items-center p-3 rounded-lg border dark:border-slate-800 text-sm hover:border-blue-300 transition-colors"><div><span className="font-bold block">{adObj.name}</span></div><div className="flex gap-1"><button onClick={() => handleEditAdInit(ad)} className="p-2 text-blue-500 hover:bg-blue-50 dark:hover:bg-slate-700 rounded-full">✏️</button><button onClick={() => triggerDeleteAd(adObj)} className="p-2 text-red-500 hover:bg-red-50 dark:hover:bg-slate-700 rounded-full">🗑️</button></div></div>); })}</div></div></div>}
     </div>
   );
 }

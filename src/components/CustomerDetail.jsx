@@ -18,8 +18,11 @@ const CustomerDetail = ({ customer, allCustomers = [], currentUser, onEdit, onDe
     const [activeTab, setActiveTab] = useState('info'); 
 
     const isSeller = ['賣方', '出租', '出租方'].includes(customer.category);
+    const isRental = customer.category.includes('出租');
+    
+    // 是否為管理員 (權限判斷用)
+    const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'super_admin';
 
-    // ★★★ 雙向智慧配對邏輯 (買找案 / 案找人) ★★★
     const matchedObjects = useMemo(() => {
         const safeFloat = (v) => {
             if (!v) return 0;
@@ -28,33 +31,38 @@ const CustomerDetail = ({ customer, allCustomers = [], currentUser, onEdit, onDe
         };
 
         return allCustomers.filter(item => {
+            // ★★★ 核心權限邏輯 (RBAC) ★★★
+            // 如果不是管理員：
+            // 當 item 是買方/客戶 (非案件)，必須是「自己的」才看得到。
+            // (即：業務看案件->OK, 業務看別人的買方->Block)
+            if (!isAdmin) {
+                const itemIsCase = ['賣方', '出租', '出租方'].includes(item.category);
+                const itemIsMine = item.owner === currentUser?.username;
+                
+                // 如果配對到的對象是「買方/私有客戶」，且不是我的 => 隱藏
+                if (!itemIsCase && !itemIsMine) return false;
+            }
+            // -----------------------------
+
             const itemIsSeller = ['賣方', '出租', '出租方'].includes(item.category);
 
-            // ==========================================
-            // 模式 A: 我是買方，我要找案件 (item 是賣方)
-            // ==========================================
             if (!isSeller) {
-                if (!itemIsSeller) return false; // 只找案件
-
-                // 1. 類別
+                if (!itemIsSeller) return false; 
                 if (customer.category.includes('買') && !item.category.includes('賣') && !item.category.includes('售')) return false;
                 if (customer.category.includes('租') && !item.category.includes('租')) return false;
 
-                // 2. 區域
                 if (customer.reqRegion) {
                     const buyerRegion = customer.reqRegion.trim();
                     const itemRealRegion = item.reqRegion ? item.reqRegion.trim() : '';
                     const itemFolderRegion = item.assignedRegion ? item.assignedRegion.trim() : '';
-                    if (itemRealRegion !== buyerRegion && itemFolderRegion !== buyerRegion) return false; 
+                    if (!buyerRegion.includes(itemRealRegion) && !buyerRegion.includes(itemFolderRegion)) return false; 
                 }
 
-                // 3. 類型
                 if (customer.targetPropertyType && customer.targetPropertyType !== '不限') {
                     if (item.propertyType && item.propertyType !== customer.targetPropertyType) return false;
                     if (!item.propertyType) return false; 
                 }
 
-                // 4. 坪數 (案件要在買方需求範圍內)
                 const minPing = safeFloat(customer.minPing);
                 const maxPing = safeFloat(customer.maxPing);
                 if (minPing > 0 || maxPing > 0) {
@@ -64,35 +72,23 @@ const CustomerDetail = ({ customer, allCustomers = [], currentUser, onEdit, onDe
                     if (minPing > 0 && itemSize < minPing) return false;
                     if (maxPing > 0 && itemSize > maxPing) return false;
                 }
-
                 return true;
-            }
-
-            // ==========================================
-            // 模式 B: 我是賣方(案件)，我要找買方 (item 是買方)
-            // ==========================================
-            else {
-                if (itemIsSeller) return false; // 只找買方
-
-                // 1. 類別
+            } else {
+                if (itemIsSeller) return false; 
                 if (customer.category.includes('賣') && !item.category.includes('買')) return false;
                 if (customer.category.includes('租') && !item.category.includes('租')) return false;
 
-                // 2. 區域 (買方想找的區域 必須包含 我的區域)
                 if (item.reqRegion) {
                     const buyerWantRegion = item.reqRegion.trim();
                     const myRealRegion = customer.reqRegion ? customer.reqRegion.trim() : '';
                     const myFolderRegion = customer.assignedRegion ? customer.assignedRegion.trim() : '';
-                    // 如果買方指定的區域 跟我的實際區域或歸檔區域都不一樣，就不配對
-                    if (buyerWantRegion !== myRealRegion && buyerWantRegion !== myFolderRegion) return false;
+                    if (!buyerWantRegion.includes(myRealRegion) && !buyerWantRegion.includes(myFolderRegion)) return false;
                 }
 
-                // 3. 類型 (買方想找的類型 必須包含 我的類型)
                 if (item.targetPropertyType && item.targetPropertyType !== '不限') {
                     if (customer.propertyType && customer.propertyType !== item.targetPropertyType) return false;
                 }
 
-                // 4. 坪數 (我的坪數要在買方需求範圍內)
                 const buyerMin = safeFloat(item.minPing);
                 const buyerMax = safeFloat(item.maxPing);
                 if (buyerMin > 0 || buyerMax > 0) {
@@ -102,11 +98,10 @@ const CustomerDetail = ({ customer, allCustomers = [], currentUser, onEdit, onDe
                     if (buyerMin > 0 && mySize < buyerMin) return false;
                     if (buyerMax > 0 && mySize > buyerMax) return false;
                 }
-
                 return true;
             }
         });
-    }, [customer, allCustomers, isSeller]);
+    }, [customer, allCustomers, isSeller, isAdmin, currentUser]);
 
     const handleAddNoteSubmit = (e) => {
         e.preventDefault();
@@ -141,7 +136,14 @@ const CustomerDetail = ({ customer, allCustomers = [], currentUser, onEdit, onDe
                         <div className={`p-5 rounded-2xl border ${darkMode ? 'bg-slate-900 border-slate-700' : 'bg-white border-gray-100'} shadow-sm`}>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                 <div><label className="text-xs text-gray-400 block mb-1">聯絡電話</label><div className="flex items-center gap-2 font-mono text-lg font-bold"><Phone className="w-4 h-4 text-blue-500"/> {customer.phone || '未填寫'} <a href={`tel:${customer.phone}`} className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded">撥打</a></div></div>
-                                <div><label className="text-xs text-gray-400 block mb-1">{isSeller ? '案件名稱' : '需求預算'}</label><div className="font-bold text-lg">{isSeller ? customer.caseName : `${customer.value || 0} 萬`}</div></div>
+                                
+                                <div>
+                                    <label className="text-xs text-gray-400 block mb-1">{isSeller ? (isRental ? '租金' : '開價') : '需求預算'}</label>
+                                    <div className="text-2xl font-black text-green-500">
+                                        {isSeller ? customer.totalPrice : customer.value || 0} 
+                                        <span className="text-sm text-gray-500 ml-1">{isRental ? '元' : '萬'}</span>
+                                    </div>
+                                </div>
                                 
                                 {!isSeller && (
                                     <>
@@ -153,13 +155,18 @@ const CustomerDetail = ({ customer, allCustomers = [], currentUser, onEdit, onDe
 
                                 {isSeller && (
                                     <>
-                                        <div><label className="text-xs text-gray-400 block mb-1">開價</label><div className="text-2xl font-black text-green-500">{customer.totalPrice} <span className="text-sm text-gray-500">萬</span></div></div>
                                         <div><label className="text-xs text-gray-400 block mb-1">物件類型</label><div className="font-bold">{customer.propertyType || '未指定'}</div></div>
                                         <div><label className="text-xs text-gray-400 block mb-1">地坪/建坪</label><div className="font-bold">{customer.landPing || 0} / {customer.buildPing || 0} 坪</div></div>
-                                        <div><label className="text-xs text-gray-400 block mb-1">所在區域</label><div className="font-bold">{customer.reqRegion || customer.assignedRegion}</div></div>
                                         <div className="md:col-span-2"><label className="text-xs text-gray-400 block mb-1">地址</label><div className="font-bold flex items-center gap-2"><MapPin className="w-4 h-4"/> {customer.landNo || '未填寫'}</div></div>
                                     </>
                                 )}
+
+                                <div className="md:col-span-2 pt-4 border-t dark:border-slate-700">
+                                    <label className="text-xs text-gray-400 block mb-2 flex items-center gap-1"><StickyNote className="w-3 h-3"/> 備註事項</label>
+                                    <div className="p-3 bg-gray-50 dark:bg-slate-800 rounded-lg text-sm whitespace-pre-wrap leading-relaxed">
+                                        {customer.remarks || "無備註內容"}
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -211,9 +218,7 @@ const CustomerDetail = ({ customer, allCustomers = [], currentUser, onEdit, onDe
                             <div className="grid grid-cols-1 gap-3">
                                 {matchedObjects.map(obj => (
                                     <div key={obj.id} className={`flex justify-between p-4 rounded-xl border ${darkMode ? 'bg-slate-900 border-slate-700' : 'bg-white border-gray-200'} hover:border-purple-400 transition-colors`}>
-                                        {/* 渲染邏輯：根據找到的是「買方」還是「案件」顯示不同內容 */}
                                         {isSeller ? (
-                                            // 賣方模式：顯示找到的買方
                                             <>
                                                 <div>
                                                     <div className="flex items-center gap-2 mb-1">
@@ -232,7 +237,6 @@ const CustomerDetail = ({ customer, allCustomers = [], currentUser, onEdit, onDe
                                                 </div>
                                             </>
                                         ) : (
-                                            // 買方模式：顯示找到的案件
                                             <>
                                                 <div>
                                                     <div className="flex items-center gap-2 mb-1">
@@ -246,8 +250,8 @@ const CustomerDetail = ({ customer, allCustomers = [], currentUser, onEdit, onDe
                                                     </div>
                                                 </div>
                                                 <div className="text-right">
-                                                    <div className="text-xl font-black text-green-500">{obj.totalPrice} <span className="text-xs text-gray-400">萬</span></div>
-                                                    <div className="text-xs text-gray-400 mt-1">{obj.unitPrice} 萬/坪</div>
+                                                    <div className="text-xl font-black text-green-500">{obj.totalPrice} <span className="text-xs text-gray-400">{isRental ? '元' : '萬'}</span></div>
+                                                    <div className="text-xs text-gray-400 mt-1">{obj.unitPrice} {isRental ? '元/坪' : '萬/坪'}</div>
                                                 </div>
                                             </>
                                         )}
