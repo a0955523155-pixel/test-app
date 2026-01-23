@@ -3,7 +3,7 @@ import {
   Search, Plus, Filter, Download, Upload, FileSpreadsheet, 
   ChevronDown, ChevronRight, User, Phone, MapPin, Tag, Calendar, MoreHorizontal, LayoutGrid, List as ListIcon, 
   ExternalLink, Trash2, MessageCircle, Moon, Sun, LogOut, CheckCircle, CheckSquare, ArrowUpDown, Users,
-  Building, FolderOpen, Megaphone, X, UserCircle, Settings // ★ 新增 UserCircle, Settings 圖示
+  Building, FolderOpen, Megaphone, X, UserCircle
 } from 'lucide-react';
 import * as XLSX from 'xlsx'; 
 
@@ -36,7 +36,7 @@ const ClientsView = ({
     setView, setSelectedCustomer, onCustomerClick, 
     onImport, onBatchDelete, onBroadcast,
     companyProjects, onUpdateProjects,
-    onOpenProfile, onOpenSettings // ★★★ 接收這兩個新函式 ★★★
+    onOpenProfile 
 }) => {
     
     const [selectedIds, setSelectedIds] = useState([]);
@@ -44,15 +44,13 @@ const ClientsView = ({
     const [sortMode, setSortMode] = useState('agent'); 
     const [expandedGroups, setExpandedGroups] = useState({});
 
-    // 模式控制
     const [isSelectionMode, setIsSelectionMode] = useState(false);
     const [isBroadcastMode, setIsBroadcastMode] = useState(false); 
 
     const pressTimer = useRef(null);
 
-    useEffect(() => {
-        setListMode('week'); 
-    }, []);
+    // ★★★ 關鍵修改：移除了 useEffect(() => { setListMode('week'); }, []); ★★★
+    // 這樣列表就不會每次重新載入時都強制跳回「本週」，而是保留使用者的選擇。
 
     const toggleGroup = (groupName) => {
         setExpandedGroups(prev => ({ ...prev, [groupName]: !prev[groupName] }));
@@ -199,18 +197,9 @@ const ClientsView = ({
                 <div className="flex justify-between items-center mb-4">
                     <h1 className={`text-2xl font-black tracking-tight ${darkMode ? 'text-white' : 'text-gray-900'}`}>客戶列表</h1>
                     <div className="flex gap-2">
-                        {/* ★★★ 新增：個人資料按鈕 ★★★ */}
                         <button onClick={onOpenProfile} className={`p-2 rounded-full ${darkMode ? 'hover:bg-slate-800 text-blue-400' : 'hover:bg-gray-200 text-blue-600'}`} title="個人資料設定">
                             <UserCircle className="w-5 h-5"/>
                         </button>
-                        
-                        {/* ★★★ 新增：系統設定按鈕 (僅管理員可見) ★★★ */}
-                        {isAdmin && (
-                            <button onClick={onOpenSettings} className={`p-2 rounded-full ${darkMode ? 'hover:bg-slate-800 text-gray-400' : 'hover:bg-gray-200 text-gray-600'}`} title="系統設定">
-                                <Settings className="w-5 h-5"/>
-                            </button>
-                        )}
-
                         <button onClick={toggleDarkMode} className={`p-2 rounded-full ${darkMode ? 'bg-slate-800 text-yellow-400' : 'bg-gray-200'}`}>{darkMode ? <Sun className="w-5 h-5"/> : <Moon className="w-5 h-5"/>}</button>
                         <button onClick={handleLogout} className="p-2 rounded-full bg-gray-200 text-red-400"><LogOut className="w-5 h-5"/></button>
                     </div>
