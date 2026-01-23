@@ -6,11 +6,21 @@ import {
 } from 'lucide-react';
 import { STATUS_CONFIG } from '../config/constants';
 
-const StatusBadge = ({ status }) => {
-    const labelMap = { 'new': '新案件', 'contacting': '洽談中', 'commissioned': '已委託', 'offer': '已收斡', 'closed': '已成交', 'lost': '已無效' };
-    const label = labelMap[status] || (STATUS_CONFIG[status] || STATUS_CONFIG['new']).label;
+const StatusBadge = ({ status, category }) => {
+    const isCase = ['賣方', '出租', '出租方'].includes(category);
     const config = STATUS_CONFIG[status] || STATUS_CONFIG['new'];
-    return <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${config.color}`}>{label}</span>;
+    
+    const labelMap = {
+        'new': isCase ? '新案件' : '新客戶',
+        // ★★★ 修正這裡 ★★★
+        'contacting': isCase ? '洽談中' : '接洽中',
+        'commissioned': '已委託',
+        'offer': '已收斡',
+        'closed': '已成交',
+        'lost': '已無效'
+    };
+
+    return <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${config.color}`}>{labelMap[status] || config.label}</span>;
 };
 
 // Base64 轉 Blob
@@ -30,6 +40,7 @@ const CustomerDetail = ({ customer, allCustomers = [], currentUser, onEdit, onDe
     const [noteContent, setNoteContent] = useState('');
     const [activeTab, setActiveTab] = useState('info'); 
     
+    // Modal
     const [showPrintModal, setShowPrintModal] = useState(false);
     const [showDeleteModal, setShowDeleteModal] = useState(false);
     
@@ -39,9 +50,10 @@ const CustomerDetail = ({ customer, allCustomers = [], currentUser, onEdit, onDe
 
     const isSeller = ['賣方', '出租', '出租方'].includes(customer.category);
     const isRental = customer.category && customer.category.includes('出租');
+    
     const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'super_admin';
     const isOwner = currentUser?.username === customer.owner;
-    const canEdit = isAdmin || isOwner;
+    const canEdit = isAdmin || isOwner; 
 
     const typeStr = customer.propertyType || customer.type || '';
     const isLand = typeStr.includes('土地') || typeStr.includes('農地') || typeStr.includes('建地') || typeStr.includes('工業地');
@@ -63,13 +75,11 @@ const CustomerDetail = ({ customer, allCustomers = [], currentUser, onEdit, onDe
 
     const executePrint = () => {
         const win = window.open('', '', 'height=800,width=1200');
-        
         let finalAgent = currentUser; 
         if (customer.assignedAgent) {
             const foundAgent = (allUsers || []).find(u => u.name === customer.assignedAgent);
             if (foundAgent) { finalAgent = foundAgent; }
         }
-
         const agentName = finalAgent?.name || '專案經紀人';
         const agentPhone = finalAgent?.phone || '09xx-xxx-xxx';
         const agentLine = finalAgent?.lineId || ''; 
@@ -126,7 +136,6 @@ const CustomerDetail = ({ customer, allCustomers = [], currentUser, onEdit, onDe
         const displayArea = customer.reqRegion || customer.vendorDistrict || customer.area || '';
         const displayAddress = formatAddress();
 
-        // ★★★ 修正規格表：顯示總樓層與正確型態 ★★★
         let specsHtml = '';
         if (isLand) {
             specsHtml = `
@@ -243,6 +252,7 @@ const CustomerDetail = ({ customer, allCustomers = [], currentUser, onEdit, onDe
         setShowPrintModal(false);
     };
 
+    // 文件預覽 (網頁版)
     const renderDocument = (src, title, icon) => {
         if (!src) return null;
         const isPdf = src.startsWith('data:application/pdf');
@@ -318,7 +328,7 @@ const CustomerDetail = ({ customer, allCustomers = [], currentUser, onEdit, onDe
                 <div className="flex items-center gap-3">
                     <button onClick={onBack} className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-slate-800"><X className="w-6 h-6" /></button>
                     <h1 className="text-xl font-bold truncate max-w-[200px]">{customer.name}</h1>
-                    <StatusBadge status={customer.status} />
+                    <StatusBadge status={customer.status} category={customer.category} />
                 </div>
                 <div className="flex gap-2">
                     {isSeller && (
@@ -338,6 +348,7 @@ const CustomerDetail = ({ customer, allCustomers = [], currentUser, onEdit, onDe
             <div className="p-4 max-w-3xl mx-auto space-y-6 pb-24">
                 <div className="flex p-1 bg-gray-200 dark:bg-slate-800 rounded-xl">
                     <button onClick={() => setActiveTab('info')} className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${activeTab === 'info' ? 'bg-white dark:bg-slate-600 text-blue-600 shadow' : 'text-gray-500'}`}>基本資料</button>
+                    <button onClick={() => setActiveTab('documents')} className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${activeTab === 'documents' ? 'bg-white dark:bg-slate-600 text-blue-600 shadow' : 'text-gray-500'}`}>相關圖資</button>
                     <button onClick={() => setActiveTab('notes')} className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${activeTab === 'notes' ? 'bg-white dark:bg-slate-600 text-blue-600 shadow' : 'text-gray-500'}`}>回報紀錄 ({customer.notes?.length || 0})</button>
                     <button onClick={() => setActiveTab('match')} className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${activeTab === 'match' ? 'bg-white dark:bg-slate-600 text-purple-600 shadow' : 'text-gray-500'}`}>智慧配對 ({matchedObjects.length})</button>
                 </div>
@@ -366,16 +377,31 @@ const CustomerDetail = ({ customer, allCustomers = [], currentUser, onEdit, onDe
                             </div>
                         </div>
 
-                        {/* 圖片與文件列表 */}
-                        {isSeller && (
-                            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                                {renderDocument(customer.photoUrl, "現況封面", <ImageIcon className="w-4 h-4 text-blue-500"/>)}
-                                {renderDocument(customer.imgCadastral, "地籍圖", <Map className="w-4 h-4 text-green-500"/>)}
-                                {renderDocument(customer.imgRoute, "路線圖", <Navigation className="w-4 h-4 text-purple-500"/>)}
-                                {renderDocument(customer.imgLocation, "位置圖", <MapPin className="w-4 h-4 text-red-500"/>)}
-                                {renderDocument(customer.imgPlan, "規劃圖", <Layout className="w-4 h-4 text-orange-500"/>)}
+                        {/* 封面現況圖 (只顯示這張) */}
+                        {isSeller && customer.photoUrl && (
+                            <div className="p-4 bg-white dark:bg-slate-900 border dark:border-slate-700 rounded-xl">
+                                <h3 className="font-bold mb-3 flex items-center gap-2 text-gray-700 dark:text-gray-300"><ImageIcon className="w-4 h-4"/> 現況封面</h3>
+                                {renderDocument(customer.photoUrl, "現況封面", <ImageIcon className="w-4 h-4"/>)}
                             </div>
                         )}
+                    </div>
+                )}
+
+                {/* 相關圖資分頁 */}
+                {activeTab === 'documents' && isSeller && (
+                    <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4">
+                        {(!customer.imgCadastral && !customer.imgRoute && !customer.imgLocation && !customer.imgPlan) && (
+                            <div className="text-center py-20 text-gray-400 bg-gray-50 dark:bg-slate-900 rounded-xl border border-dashed">
+                                <Map className="w-12 h-12 mx-auto mb-2 opacity-30"/>
+                                <p>尚未上傳任何圖資</p>
+                            </div>
+                        )}
+                        <div className="grid grid-cols-1 gap-6">
+                            {renderDocument(customer.imgCadastral, "地籍圖", <Map className="w-4 h-4 text-blue-500"/>)}
+                            {renderDocument(customer.imgRoute, "路線圖", <Navigation className="w-4 h-4 text-green-500"/>)}
+                            {renderDocument(customer.imgLocation, "位置圖", <MapPin className="w-4 h-4 text-red-500"/>)}
+                            {renderDocument(customer.imgPlan, "規劃圖", <Layout className="w-4 h-4 text-purple-500"/>)}
+                        </div>
                     </div>
                 )}
 

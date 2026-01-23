@@ -1,9 +1,8 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { 
-  Search, Plus, Filter, Download, Upload, FileSpreadsheet, 
-  ChevronDown, ChevronRight, User, Phone, MapPin, Tag, Calendar, MoreHorizontal, LayoutGrid, List as ListIcon, 
-  ExternalLink, Trash2, MessageCircle, Moon, Sun, LogOut, CheckCircle, CheckSquare, ArrowUpDown, Users,
-  Building, FolderOpen, Megaphone, X, UserCircle
+  Search, Plus, Upload, FileSpreadsheet, 
+  ChevronDown, ChevronRight, Users, MapPin, Building,
+  Megaphone, X, UserCircle, CheckSquare, CheckCircle, ArrowUpDown, LogOut, Sun, Moon
 } from 'lucide-react';
 import * as XLSX from 'xlsx'; 
 
@@ -15,6 +14,7 @@ const StatusBadge = ({ status, category }) => {
 
     const labelMap = {
         'new': isCase ? '新案件' : '新客戶',
+        // ★★★ 修正這裡：補上 : '接洽中' ★★★
         'contacting': isCase ? '洽談中' : '接洽中',
         'commissioned': '已委託',
         'offer': '已收斡',
@@ -40,17 +40,28 @@ const ClientsView = ({
 }) => {
     
     const [selectedIds, setSelectedIds] = useState([]);
-    const [filterCategory, setFilterCategory] = useState('all'); 
-    const [sortMode, setSortMode] = useState('agent'); 
+    
+    // 狀態保存
+    const [filterCategory, setFilterCategory] = useState(() => localStorage.getItem('crm_filter_category') || 'all'); 
+    const [sortMode, setSortMode] = useState(() => localStorage.getItem('crm_sort_mode') || 'agent'); 
+    
     const [expandedGroups, setExpandedGroups] = useState({});
 
+    // 模式控制
     const [isSelectionMode, setIsSelectionMode] = useState(false);
     const [isBroadcastMode, setIsBroadcastMode] = useState(false); 
 
-    const pressTimer = useRef(null);
+    const handleCategoryChange = (e) => {
+        const val = e.target.value;
+        setFilterCategory(val);
+        localStorage.setItem('crm_filter_category', val);
+    };
 
-    // ★★★ 關鍵修改：移除了 useEffect(() => { setListMode('week'); }, []); ★★★
-    // 這樣列表就不會每次重新載入時都強制跳回「本週」，而是保留使用者的選擇。
+    const handleSortChange = (e) => {
+        const val = e.target.value;
+        setSortMode(val);
+        localStorage.setItem('crm_sort_mode', val);
+    };
 
     const toggleGroup = (groupName) => {
         setExpandedGroups(prev => ({ ...prev, [groupName]: !prev[groupName] }));
@@ -168,19 +179,6 @@ const ClientsView = ({
         }
     };
 
-    const handleTouchStart = (id) => {
-        if (isBroadcastMode) return; 
-        pressTimer.current = setTimeout(() => {
-            setIsSelectionMode(true);
-            handleSelectOne(id);
-            if (navigator.vibrate) navigator.vibrate(50);
-        }, 600);
-    };
-
-    const handleTouchEnd = () => {
-        if (pressTimer.current) clearTimeout(pressTimer.current);
-    };
-
     const getGroupCount = (groupKey) => {
         return filteredCustomers.filter(c => getGroupKey(c) === groupKey).length;
     };
@@ -260,7 +258,7 @@ const ClientsView = ({
                         <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-1">
                             <div className={`flex items-center px-2 py-1.5 rounded-lg border ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white'}`}>
                                 <ArrowUpDown className="w-3 h-3 text-gray-500 mr-1"/>
-                                <select value={sortMode} onChange={(e) => setSortMode(e.target.value)} className={`bg-transparent border-none text-xs font-bold outline-none ${darkMode?'text-white':'text-gray-700'}`}>
+                                <select value={sortMode} onChange={handleSortChange} className={`bg-transparent border-none text-xs font-bold outline-none ${darkMode?'text-white':'text-gray-700'}`}>
                                     <option value="agent">分組: 業務</option>
                                     <option value="region">分組: 區域</option>
                                     <option value="project">分組: 案場</option>
@@ -270,7 +268,7 @@ const ClientsView = ({
 
                             <div className="h-6 w-px bg-gray-300 dark:bg-slate-700 mx-1"></div>
 
-                            <select value={filterCategory} onChange={(e) => setFilterCategory(e.target.value)} className={`px-3 py-1.5 rounded-lg border text-xs font-bold outline-none ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white'}`}>
+                            <select value={filterCategory} onChange={handleCategoryChange} className={`px-3 py-1.5 rounded-lg border text-xs font-bold outline-none ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white'}`}>
                                 <option value="all">全部分類</option>
                                 <option value="buyer">買方/租客</option>
                                 <option value="seller">賣方/屋主</option>
@@ -353,10 +351,6 @@ const ClientsView = ({
                                 {(isGroupExpanded || sortMode === 'date') && (
                                     <div 
                                         onClick={() => handleCardClick(customer)}
-                                        onTouchStart={() => handleTouchStart(customer.id)}
-                                        onTouchEnd={handleTouchEnd}
-                                        onMouseDown={() => handleTouchStart(customer.id)}
-                                        onMouseUp={handleTouchEnd}
                                         className={`relative bg-white dark:bg-slate-900 p-4 rounded-2xl border transition-all active:scale-[0.99] cursor-pointer select-none animate-in fade-in slide-in-from-top-1 
                                             ${isBroadcastMode ? 'border-purple-400 ring-1 ring-purple-300 hover:bg-purple-50' : 
                                                 selectedIds.includes(customer.id) ? 'border-blue-500 ring-1 ring-blue-500 bg-blue-50 dark:bg-blue-900/10' : 
