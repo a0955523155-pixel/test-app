@@ -177,7 +177,6 @@ export default function App() {
   const [adForm, setAdForm] = useState({ id: '', name: '', startDate: '', endDate: '' });
   const [isEditingAd, setIsEditingAd] = useState(false);
   const [pendingDelete, setPendingDelete] = useState(null);
-  // showSettings 已移除
   
   // Profile Settings States
   const [showProfileModal, setShowProfileModal] = useState(false);
@@ -226,7 +225,6 @@ export default function App() {
     const unsubscribe = onAuthStateChanged(auth, (u) => {
       setSessionUser(u);
       const savedUser = localStorage.getItem('crm-user-profile');
-      
       if (savedUser) {
         try { 
             setCurrentUser(JSON.parse(savedUser)); 
@@ -244,7 +242,7 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // Other Effects (Customers, Deals, Settings) are same...
+  // Data Listeners
   useEffect(() => {
       if (!customers || customers.length === 0 || !currentUser) return;
       const today = new Date();
@@ -341,7 +339,55 @@ export default function App() {
       }
   }, [currentUser]);
 
-  // ★★★ 3. 定義 handleQuickUpdate ★★★
+  // ★★★ 廣播功能 (handleBroadcast) ★★★
+  const handleBroadcast = async (target, isActive) => {
+      if (!currentUser?.companyCode) { alert("錯誤：系統無法識別公司代碼"); return; }
+      
+      const targetId = (typeof target === 'object' && target?.id) ? target.id : target;
+
+      if (isActive && !targetId) {
+          alert("無法廣播：找不到該案件/客戶的 ID");
+          return;
+      }
+
+      console.log("正在廣播:", { targetId, isActive });
+
+      try {
+          const broadcastRef = doc(db, 'artifacts', appId, 'public', 'system', 'broadcast_data', currentUser.companyCode);
+          await setDoc(broadcastRef, { 
+              isActive: isActive, 
+              targetId: targetId || null, 
+              presenterId: currentUser.username, 
+              timestamp: serverTimestamp() 
+          });
+      } catch (e) { 
+          console.error("Broadcast Error", e); 
+          alert("廣播失敗：權限不足或網路問題");
+      }
+  };
+  
+  const handleOverlayClose = (isGlobalClose) => { if (isGlobalClose) handleBroadcast(null, false); else setIncomingBroadcast(null); };
+
+  // 廣播監聽
+  useEffect(() => {
+      if (!currentUser?.companyCode) return;
+      const broadcastRef = doc(db, 'artifacts', appId, 'public', 'system', 'broadcast_data', currentUser.companyCode);
+      const unsubscribe = onSnapshot(broadcastRef, (docSnap) => {
+          if (docSnap.exists()) {
+              const data = docSnap.data();
+              if (data.isActive) {
+                  setMyBroadcastStatus(data.presenterId === currentUser.username);
+                  const target = customers.find(c => c.id === data.targetId);
+                  if (target) setIncomingBroadcast(target);
+              } else {
+                  setIncomingBroadcast(null);
+                  setMyBroadcastStatus(false);
+              }
+          }
+      });
+      return () => unsubscribe();
+  }, [currentUser, customers]);
+
   const handleQuickUpdate = async (notiItem) => {
       try {
           if (notiItem.type === 'contact') {
@@ -361,8 +407,6 @@ export default function App() {
   };
 
   const handleResolveAlert = async (id) => { if(!currentUser?.companyCode) return; try { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'system', 'alerts', id)); } catch(e) {} };
-  const handleBroadcast = async (targetId, isActive) => { if (!currentUser?.companyCode) return; try { const broadcastRef = doc(db, 'artifacts', appId, 'public', 'system', 'broadcast_data', currentUser.companyCode); await setDoc(broadcastRef, { isActive: isActive, targetId: targetId, presenterId: currentUser.username, timestamp: serverTimestamp() }); } catch (e) { } };
-  const handleOverlayClose = (isGlobalClose) => { if (isGlobalClose) handleBroadcast(null, false); else setIncomingBroadcast(null); };
   const handleLogout = () => { setCurrentUser(null); localStorage.removeItem('crm-user-profile'); setView('login'); setActiveTab('clients'); setSearchTerm(''); setLoading(false); };
   
   const handleLogin = async (username, password, companyCode, rememberMe) => {
@@ -445,7 +489,6 @@ export default function App() {
   const handleDeleteCustomer = async () => { if (selectedCustomer.owner !== currentUser.username && !isSuperAdmin) return alert("無權限"); try { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'customers', selectedCustomer.id)); setSelectedCustomer(null); setView('list'); } catch(e){} };
   const handleAddNote = async (id, content) => { try { const today = new Date().toISOString().split('T')[0]; await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'customers', id), { notes: arrayUnion({id:Date.now(), date:today, content, author:currentUser.name}), lastContact: today }); } catch(e){} };
   const handleDeleteNote = async (id, note) => { try { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'customers', id), { notes: arrayRemove(note) }); } catch(e){} };
-  
   const saveSettingsToFirestore = async (np, na) => { if(!currentUser?.companyCode)return; const p={}; if(np)p.projects=np; if(na)p.projectAds=na; try{ await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'company_settings', currentUser.companyCode), p, {merge:true}); }catch(e){} };
   const handleSaveAnnouncement = async (t) => { if(!currentUser?.companyCode)return; try{ await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'company_settings', currentUser.companyCode), {announcement:t}, {merge:true}); alert("更新成功"); }catch(e){} };
   const handleAddOption = (type, val) => { if (Array.isArray(val) && (type === 'scriveners' || type === 'adWalls')) { setAppSettings({...appSettings, [type]: val}); if (type === 'adWalls') setAdWalls(val); return; } if(!val || (appSettings[type] && appSettings[type].includes(val))) return; const u = [...(appSettings[type] || []), val]; setAppSettings({...appSettings, [type]: u}); };

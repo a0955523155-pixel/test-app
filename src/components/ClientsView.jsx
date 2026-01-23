@@ -3,7 +3,7 @@ import {
   Search, Plus, Filter, Download, Upload, FileSpreadsheet, 
   ChevronDown, ChevronRight, User, Phone, MapPin, Tag, Calendar, MoreHorizontal, LayoutGrid, List as ListIcon, 
   ExternalLink, Trash2, MessageCircle, Moon, Sun, LogOut, CheckCircle, CheckSquare, ArrowUpDown, Users,
-  Building, FolderOpen, Megaphone, X
+  Building, FolderOpen, Megaphone, X, UserCircle, Settings // ★ 新增 UserCircle, Settings 圖示
 } from 'lucide-react';
 import * as XLSX from 'xlsx'; 
 
@@ -35,7 +35,8 @@ const ClientsView = ({
     listWeekDate, setListWeekDate, searchTerm, setSearchTerm, loading, isAdmin,
     setView, setSelectedCustomer, onCustomerClick, 
     onImport, onBatchDelete, onBroadcast,
-    companyProjects, onUpdateProjects 
+    companyProjects, onUpdateProjects,
+    onOpenProfile, onOpenSettings // ★★★ 接收這兩個新函式 ★★★
 }) => {
     
     const [selectedIds, setSelectedIds] = useState([]);
@@ -45,7 +46,7 @@ const ClientsView = ({
 
     // 模式控制
     const [isSelectionMode, setIsSelectionMode] = useState(false);
-    const [isBroadcastMode, setIsBroadcastMode] = useState(false); // ★ 新增：廣播模式狀態
+    const [isBroadcastMode, setIsBroadcastMode] = useState(false); 
 
     const pressTimer = useRef(null);
 
@@ -107,18 +108,12 @@ const ClientsView = ({
 
     const filteredCustomers = useMemo(() => {
         let data = customers.filter(c => {
-            // ★★★ 核心權限邏輯 (RBAC) ★★★
-            // 1. 如果是管理員 (isAdmin)，看全部
-            // 2. 如果不是管理員：
-            //    a. 案件/賣方 (isCase) -> 大家都能看 (案源共享)
-            //    b. 客戶/買方 -> 只能看自己的 (客源保密)
             const isCase = ['賣方', '出租', '出租方'].includes(c.category);
             const isMyData = c.owner === currentUser?.username;
 
             if (!isAdmin && !isCase && !isMyData) {
-                return false; // 隱藏別人的私有客戶
+                return false; 
             }
-            // -----------------------------
 
             const matchSearch = (c.name?.includes(searchTerm) || c.phone?.includes(searchTerm) || c.caseName?.includes(searchTerm));
             
@@ -165,22 +160,18 @@ const ClientsView = ({
         else setSelectedIds(filteredCustomers.map(c => c.id));
     };
 
-    // ★★★ 點擊處理邏輯 (分流：廣播 / 多選 / 詳情) ★★★
     const handleCardClick = (customer) => {
         if (isBroadcastMode) {
-            // 廣播模式：直接觸發廣播
             onBroadcast(customer.id, true);
         } else if (isSelectionMode) {
-            // 多選模式：選取
             handleSelectOne(customer.id);
         } else {
-            // 一般模式：進詳情
             onCustomerClick(customer);
         }
     };
 
     const handleTouchStart = (id) => {
-        if (isBroadcastMode) return; // 廣播模式下不觸發長按
+        if (isBroadcastMode) return; 
         pressTimer.current = setTimeout(() => {
             setIsSelectionMode(true);
             handleSelectOne(id);
@@ -208,6 +199,18 @@ const ClientsView = ({
                 <div className="flex justify-between items-center mb-4">
                     <h1 className={`text-2xl font-black tracking-tight ${darkMode ? 'text-white' : 'text-gray-900'}`}>客戶列表</h1>
                     <div className="flex gap-2">
+                        {/* ★★★ 新增：個人資料按鈕 ★★★ */}
+                        <button onClick={onOpenProfile} className={`p-2 rounded-full ${darkMode ? 'hover:bg-slate-800 text-blue-400' : 'hover:bg-gray-200 text-blue-600'}`} title="個人資料設定">
+                            <UserCircle className="w-5 h-5"/>
+                        </button>
+                        
+                        {/* ★★★ 新增：系統設定按鈕 (僅管理員可見) ★★★ */}
+                        {isAdmin && (
+                            <button onClick={onOpenSettings} className={`p-2 rounded-full ${darkMode ? 'hover:bg-slate-800 text-gray-400' : 'hover:bg-gray-200 text-gray-600'}`} title="系統設定">
+                                <Settings className="w-5 h-5"/>
+                            </button>
+                        )}
+
                         <button onClick={toggleDarkMode} className={`p-2 rounded-full ${darkMode ? 'bg-slate-800 text-yellow-400' : 'bg-gray-200'}`}>{darkMode ? <Sun className="w-5 h-5"/> : <Moon className="w-5 h-5"/>}</button>
                         <button onClick={handleLogout} className="p-2 rounded-full bg-gray-200 text-red-400"><LogOut className="w-5 h-5"/></button>
                     </div>
@@ -225,7 +228,6 @@ const ClientsView = ({
                             />
                         </div>
                         
-                        {/* ★★★ 廣播模式獨立按鍵 ★★★ */}
                         {!isSelectionMode && (
                             <button 
                                 onClick={() => {
@@ -239,14 +241,12 @@ const ClientsView = ({
                             </button>
                         )}
 
-                        {/* 新增按鈕 (非廣播模式才顯示) */}
                         {!isSelectionMode && !isBroadcastMode && (
                             <button onClick={() => setView('add')} className="bg-blue-600 hover:bg-blue-700 text-white px-3 rounded-xl flex items-center gap-1 font-bold shadow-lg transition-all active:scale-95">
                                 <Plus className="w-5 h-5" /> 
                             </button>
                         )}
 
-                        {/* 多選按鈕 (非廣播模式才顯示) */}
                         {!isBroadcastMode && (
                             <button 
                                 onClick={() => {
@@ -260,7 +260,6 @@ const ClientsView = ({
                         )}
                     </div>
                     
-                    {/* 廣播模式提示條 */}
                     {isBroadcastMode && (
                         <div className="bg-purple-100 text-purple-700 text-xs font-bold px-3 py-2 rounded-lg flex items-center animate-in fade-in">
                             <Megaphone className="w-4 h-4 mr-2 animate-pulse"/>
@@ -323,7 +322,6 @@ const ClientsView = ({
                     <div className="mt-2 p-2 bg-blue-50 dark:bg-blue-900/20 rounded-lg flex justify-between items-center animate-in slide-in-from-top-2">
                         <span className="text-xs font-bold text-blue-600 ml-2">已選 {selectedIds.length} 筆</span>
                         <div className="flex gap-2">
-                            {/* 多選模式的廣播按鈕保留，供批量操作 */}
                             {selectedIds.length === 1 && <button onClick={() => onBroadcast(selectedIds[0], true)} className="px-3 py-1 bg-purple-600 text-white text-xs rounded font-bold">廣播</button>}
                             {isAdmin && <button onClick={() => { onBatchDelete(selectedIds); setSelectedIds([]); }} className="px-3 py-1 bg-red-600 text-white text-xs rounded font-bold">刪除</button>}
                         </div>
@@ -372,8 +370,8 @@ const ClientsView = ({
                                         onMouseUp={handleTouchEnd}
                                         className={`relative bg-white dark:bg-slate-900 p-4 rounded-2xl border transition-all active:scale-[0.99] cursor-pointer select-none animate-in fade-in slide-in-from-top-1 
                                             ${isBroadcastMode ? 'border-purple-400 ring-1 ring-purple-300 hover:bg-purple-50' : 
-                                              selectedIds.includes(customer.id) ? 'border-blue-500 ring-1 ring-blue-500 bg-blue-50 dark:bg-blue-900/10' : 
-                                              'border-gray-100 dark:border-slate-800 hover:shadow-md'}`}
+                                                selectedIds.includes(customer.id) ? 'border-blue-500 ring-1 ring-blue-500 bg-blue-50 dark:bg-blue-900/10' : 
+                                                'border-gray-100 dark:border-slate-800 hover:shadow-md'}`}
                                     >
                                         {isSelectionMode && (
                                             <div className="absolute top-4 right-4 pointer-events-none">
@@ -383,7 +381,6 @@ const ClientsView = ({
                                             </div>
                                         )}
                                         
-                                        {/* 廣播模式下的圖示 */}
                                         {isBroadcastMode && (
                                             <div className="absolute top-4 right-4">
                                                 <Megaphone className="w-5 h-5 text-purple-500"/>

@@ -23,7 +23,7 @@ const CustomerDetail = ({ customer, allCustomers = [], currentUser, onEdit, onDe
     const typeStr = customer.propertyType || customer.type || '';
     const isLand = typeStr.includes('土地') || typeStr.includes('農地') || typeStr.includes('建地') || typeStr.includes('工業地');
 
-    // ★★★ 地址格式化 (隱藏門牌) ★★★
+    // 地址格式化
     const formatAddress = (addr) => {
         if (!addr) return '';
         if (addr.includes('段') || addr.includes('地號')) return addr;
@@ -32,9 +32,10 @@ const CustomerDetail = ({ customer, allCustomers = [], currentUser, onEdit, onDe
         return addr;
     };
 
-    // ★★★ 核心功能：列印 (質感綠色版) ★★★
+    // ★★★ 核心功能：列印 (手機版優化 + 關閉按鈕) ★★★
     const handlePrint = () => {
-        const win = window.open('', '', 'height=800,width=1200');
+        const win = window.open('', '_blank'); // 改用 _blank 確保手機開啟新分頁
+        if (!win) { alert("請允許開啟彈出視窗以進行列印"); return; }
         
         let finalAgent = currentUser; 
         if (customer.assignedAgent) {
@@ -78,60 +79,93 @@ const CustomerDetail = ({ customer, allCustomers = [], currentUser, onEdit, onDe
         }
 
         win.document.write('<html><head><title>' + (customer.caseName || customer.name) + ' - 物件介紹</title>');
+        // ★★★ 加入 viewport meta 標籤優化手機顯示 ★★★
+        win.document.write('<meta name="viewport" content="width=device-width, initial-scale=1.0">');
         win.document.write('<style>');
         win.document.write(`
             @page { size: A4 portrait; margin: 0; }
-            body { font-family: "Microsoft JhengHei", "Heiti TC", sans-serif; margin: 0; padding: 0; background: #fff; -webkit-print-color-adjust: exact; height: 100vh; overflow: hidden; }
+            body { font-family: "Microsoft JhengHei", "Heiti TC", sans-serif; margin: 0; padding: 0; background: #fff; -webkit-print-color-adjust: exact; }
             
-            .page-container { width: 210mm; height: 296mm; padding: 12mm 15mm; box-sizing: border-box; margin: 0 auto; display: flex; flex-direction: column; }
-            
-            /* Header: 深墨綠色底 + 金色字 */
-            .header { border-bottom: 4px solid #14532d; padding-bottom: 10px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: flex-end; flex-shrink: 0; }
-            .header h1 { margin: 0; font-size: 28px; color: #14532d; letter-spacing: 2px; font-weight: 900; }
-            .header span { font-size: 14px; font-weight: bold; color: #15803d; letter-spacing: 1px; text-transform: uppercase; }
+            /* ★★★ 關鍵修改：A4 容器與縮放邏輯 ★★★ */
+            .page-container { 
+                width: 210mm; 
+                min-height: 296mm; /* 確保至少一頁高度 */
+                padding: 10mm 12mm; /* 稍微縮小邊距 */
+                box-sizing: border-box; 
+                margin: 0 auto; 
+                display: flex; 
+                flex-direction: column; 
+                position: relative;
+            }
 
-            .photo-container { width: 100%; height: 450px; background: #f3f4f6; border-radius: 8px; overflow: hidden; border: 1px solid #d1d5db; margin-bottom: 20px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+            /* 手機版強制縮放，確保塞進一頁 */
+            @media print {
+                body { transform: scale(0.95); transform-origin: top center; } /* 整體縮小 */
+                .page-container { height: auto; overflow: hidden; page-break-after: avoid; page-break-inside: avoid; }
+                .no-print { display: none !important; } /* 列印時隱藏按鈕 */
+            }
+
+            /* Header: 深墨綠色底 + 金色字 */
+            .header { border-bottom: 4px solid #14532d; padding-bottom: 8px; margin-bottom: 15px; display: flex; justify-content: space-between; align-items: flex-end; flex-shrink: 0; }
+            .header h1 { margin: 0; font-size: 24px; color: #14532d; letter-spacing: 2px; font-weight: 900; }
+            .header span { font-size: 12px; font-weight: bold; color: #15803d; letter-spacing: 1px; text-transform: uppercase; }
+
+            .photo-container { width: 100%; height: 400px; background: #f3f4f6; border-radius: 8px; overflow: hidden; border: 1px solid #d1d5db; margin-bottom: 15px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
             .photo-container img { width: 100%; height: 100%; object-fit: cover; }
             .no-photo span { font-size: 20px; color: #9ca3af; font-weight: bold; }
 
-            .title-section { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 20px; flex-shrink: 0; }
-            .title-info { width: 65%; }
-            /* 狀態標籤: 質感金 */
+            .title-section { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 15px; flex-shrink: 0; }
+            .title-info { width: 60%; }
             .status-tag { display: inline-block; padding: 4px 10px; background: #fffbeb; color: #b45309; font-size: 12px; font-weight: bold; border-radius: 4px; margin-bottom: 6px; border: 1px solid #fcd34d; }
-            .case-name { font-size: 32px; font-weight: 900; color: #111827; margin: 0 0 6px 0; line-height: 1.2; }
-            .address { font-size: 16px; color: #4b5563; font-weight: bold; display: flex; align-items: center; }
+            .case-name { font-size: 28px; font-weight: 900; color: #111827; margin: 0 0 6px 0; line-height: 1.2; }
+            .address { font-size: 14px; color: #4b5563; font-weight: bold; display: flex; align-items: center; }
             
-            .price-info { width: 35%; text-align: right; }
-            .price-label { font-size: 14px; color: #6b7280; font-weight: bold; margin-bottom: 2px; }
-            /* 價格: 深綠色 */
-            .price-val { font-size: 52px; font-weight: 900; color: #15803d; font-family: Arial, sans-serif; letter-spacing: -1px; line-height: 1; }
-            .price-unit { font-size: 20px; color: #374151; margin-left: 2px; }
+            .price-info { width: 40%; text-align: right; }
+            .price-label { font-size: 12px; color: #6b7280; font-weight: bold; margin-bottom: 2px; }
+            .price-val { font-size: 48px; font-weight: 900; color: #15803d; font-family: Arial, sans-serif; letter-spacing: -1px; line-height: 1; }
+            .price-unit { font-size: 18px; color: #374151; margin-left: 2px; }
 
-            /* 規格表: 白底 + 灰框 (不要全綠) */
-            .specs-box { background: #ffffff; border: 2px solid #e5e7eb; border-radius: 8px; padding: 20px; margin-bottom: 20px; flex-shrink: 0; }
-            .specs-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; column-gap: 20px; row-gap: 0; }
+            .specs-box { background: #ffffff; border: 2px solid #e5e7eb; border-radius: 8px; padding: 15px; margin-bottom: 15px; flex-shrink: 0; }
+            .specs-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; column-gap: 15px; row-gap: 0; }
             .spec-item { border-right: 1px solid #d1d5db; padding-right: 10px; }
             .spec-item:nth-child(3n) { border-right: none; }
-            .spec-label { font-size: 12px; color: #6b7280; margin-bottom: 4px; }
-            .spec-value { font-size: 18px; font-weight: bold; color: #1f2937; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-            .mt-3 { margin-top: 15px; }
+            .spec-label { font-size: 11px; color: #6b7280; margin-bottom: 4px; }
+            .spec-value { font-size: 16px; font-weight: bold; color: #1f2937; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .mt-3 { margin-top: 10px; }
 
-            /* 特色區塊: 極淡米色 (溫暖感) */
-            .highlight-box { background: #fdfbf7; border: 1px solid #e5e7eb; padding: 15px; border-radius: 6px; margin-top: auto; margin-bottom: 20px; flex-shrink: 0; }
-            .highlight-title { color: #b45309; font-weight: bold; margin-bottom: 5px; font-size: 14px; }
-            .highlight-text { font-size: 14px; color: #374151; line-height: 1.6; }
+            .highlight-box { background: #fdfbf7; border: 1px solid #e5e7eb; padding: 12px; border-radius: 6px; margin-top: auto; margin-bottom: 15px; flex-shrink: 0; }
+            .highlight-title { color: #b45309; font-weight: bold; margin-bottom: 4px; font-size: 13px; }
+            .highlight-text { font-size: 13px; color: #374151; line-height: 1.4; }
 
-            /* Footer: 深墨綠底 */
-            .footer { background: #14532d; color: white; padding: 15px 20px; border-radius: 10px; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; margin-top: auto; -webkit-print-color-adjust: exact; border-top: 4px solid #22c55e; }
-            .agent-info h3 { margin: 0 0 2px 0; font-size: 22px; font-weight: 900; letter-spacing: 1px; }
-            .agent-title { color: #86efac; font-size: 11px; font-weight: bold; letter-spacing: 1px; margin-bottom: 2px; }
-            .agent-slogan { color: #d1fae5; font-size: 11px; }
+            .footer { background: #14532d; color: white; padding: 12px 20px; border-radius: 10px; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; margin-top: auto; -webkit-print-color-adjust: exact; border-top: 4px solid #22c55e; }
+            .agent-info h3 { margin: 0 0 2px 0; font-size: 20px; font-weight: 900; letter-spacing: 1px; }
+            .agent-title { color: #86efac; font-size: 10px; font-weight: bold; letter-spacing: 1px; margin-bottom: 2px; }
+            .agent-slogan { color: #d1fae5; font-size: 10px; }
             .contact-info { text-align: right; }
-            .phone { font-size: 26px; font-weight: 900; margin-bottom: 0px; display: flex; align-items: center; justify-content: flex-end; gap: 8px; color: #fff; }
-            .line-id { font-size: 14px; color: #ecfdf5; font-weight: bold; background: #166534; padding: 2px 8px; border-radius: 4px; display: inline-block; margin-top: 4px;}
+            .phone { font-size: 24px; font-weight: 900; margin-bottom: 0px; display: flex; align-items: center; justify-content: flex-end; gap: 8px; color: #fff; }
+            .line-id { font-size: 12px; color: #ecfdf5; font-weight: bold; background: #166534; padding: 2px 8px; border-radius: 4px; display: inline-block; margin-top: 4px;}
+
+            /* 關閉按鈕樣式 */
+            .close-btn-container {
+                position: fixed; top: 10px; right: 10px; z-index: 9999;
+                display: flex; gap: 10px;
+            }
+            .action-btn {
+                background: #ef4444; color: white; border: none; padding: 10px 20px; 
+                border-radius: 50px; font-weight: bold; cursor: pointer; box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            }
+            .print-btn { background: #3b82f6; }
         `);
         win.document.write('</style></head><body>');
         
+        // ★★★ 加入操作按鈕 (列印時會隱藏) ★★★
+        win.document.write(`
+            <div class="close-btn-container no-print">
+                <button class="action-btn print-btn" onclick="window.print()">🖨️ 列印/儲存</button>
+                <button class="action-btn" onclick="window.close()">❌ 關閉視窗</button>
+            </div>
+        `);
+
         win.document.write(`
             <div class="page-container">
                 <div class="header">
@@ -161,7 +195,7 @@ const CustomerDetail = ({ customer, allCustomers = [], currentUser, onEdit, onDe
 
                 ${customer.nearby ? `
                 <div class="highlight-box">
-                    <div class="highlight-title">🌟 物件優勢與生活機能</div>
+                    <div class="highlight-title">🌟 周邊機能與優勢</div>
                     <div class="highlight-text">${customer.nearby}</div>
                 </div>` : '<div style="flex-grow:1"></div>'} 
 
@@ -182,9 +216,8 @@ const CustomerDetail = ({ customer, allCustomers = [], currentUser, onEdit, onDe
         win.document.write('</body></html>');
         win.document.close();
         
-        setTimeout(() => {
-            win.print();
-        }, 500);
+        // 手機版不自動列印，讓使用者自己點按鈕，體驗較好
+        // setTimeout(() => { win.print(); }, 500); 
     };
 
     const matchedObjects = useMemo(() => {
