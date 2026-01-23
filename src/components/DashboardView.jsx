@@ -2,8 +2,11 @@ import React, { useState, useMemo } from 'react';
 import { 
   Building2, Users, PieChart, TrendingUp, DollarSign, Calendar, LayoutGrid, List, AlertTriangle,
   Sun, Moon, LogOut, FileText, Plus, Edit, Trash2, Megaphone, Settings, X, Clock, CheckCircle,
-  UserPlus, Sparkles, ChevronDown, ChevronRight, Monitor, MapPin, ExternalLink, RefreshCw
+  UserPlus, Sparkles, ChevronDown, ChevronRight, Monitor, MapPin, ExternalLink, RefreshCw,
+  User, Phone, MessageCircle, Image as ImageIcon, Briefcase, Key, Shield, Save // ★★★ 這裡補上了 Save ★★★
 } from 'lucide-react';
+import { getFirestore, doc, updateDoc, addDoc, collection, deleteDoc, query, where, getDocs } from 'firebase/firestore'; 
+import { appId } from '../config/constants'; 
 import DealForm from './DealForm'; 
 
 // 行政區資料
@@ -43,7 +46,7 @@ const DashboardView = ({
     companyProjects, projectAds, allUsers, 
     newRegionName, setNewRegionName, newProjectNames, setNewProjectNames,
     onAddRegion, onDeleteRegion, onAddProject, onDeleteProject,
-    onToggleUser, onDeleteUser,
+    onToggleUser, onDeleteUser, 
     onManageAd,
     dashboardView, setDashboardView,
     handleExportExcel, isExporting, showExportMenu, setShowExportMenu,
@@ -86,6 +89,10 @@ const DashboardView = ({
     });
     const [isEditingAdWall, setIsEditingAdWall] = useState(false);
     const [editingAdWallId, setEditingAdWallId] = useState(null);
+
+    // ★★★ 人員管理編輯狀態 ★★★
+    const [editUserModal, setEditUserModal] = useState(false);
+    const [editingUserData, setEditingUserData] = useState(null);
 
     const toggleRegion = (region) => {
         setCollapsedRegions(prev => ({ ...prev, [region]: !prev[region] }));
@@ -214,6 +221,70 @@ const DashboardView = ({
             onAddOption('adWalls', updated);
             // 如果刪除的是正在編輯的項目，重置表單
             if (id === editingAdWallId) resetAdWallForm();
+        }
+    };
+
+    // ★★★ 人員管理邏輯 ★★★
+    const handleOpenUserEdit = (user) => {
+        setEditingUserData(user || { 
+            username: '', password: '', name: '', 
+            phone: '', lineId: '', licenseId: '',
+            role: 'user', status: 'active', photoUrl: '', 
+            companyCode: currentUser?.companyCode 
+        });
+        setEditUserModal(true);
+    };
+
+    const handleSaveUser = async (e) => {
+        e.preventDefault();
+        const db = getFirestore();
+        
+        if (!editingUserData.username || !editingUserData.password || !editingUserData.name) {
+            alert("帳號、密碼與姓名為必填欄位");
+            return;
+        }
+
+        try {
+            const userData = { ...editingUserData };
+
+            if (!userData.id) {
+                // 新增模式：檢查帳號重複
+                const usersRef = collection(db, 'artifacts', appId, 'public', 'data', 'app_users');
+                const q = query(usersRef, where("username", "==", userData.username));
+                const querySnapshot = await getDocs(q);
+                
+                if (!querySnapshot.empty) {
+                    alert("錯誤：此帳號 (username) 已經被註冊過了，請更換一個。");
+                    return;
+                }
+
+                userData.createdAt = new Date().toISOString();
+                if(!userData.status) userData.status = 'active';
+                
+                await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'app_users'), userData);
+            } else {
+                // 編輯模式：更新資料
+                await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'app_users', userData.id), userData);
+            }
+            
+            setEditUserModal(false);
+            setEditingUserData(null);
+            alert(userData.id ? "人員資料已更新" : "新人員建立成功");
+        } catch (error) {
+            console.error("儲存失敗:", error);
+            alert("儲存失敗，請檢查網路連線。");
+        }
+    };
+
+    const handleUserImageUpload = (e) => {
+        const file = e.target.files[0];
+        if (file) {
+            if (file.size > 800 * 1024) return alert("圖片太大，請小於 800KB");
+            const reader = new FileReader();
+            reader.onloadend = () => {
+                setEditingUserData(prev => ({ ...prev, photoUrl: reader.result }));
+            };
+            reader.readAsDataURL(file);
         }
     };
 
@@ -520,7 +591,6 @@ const DashboardView = ({
                                                 <div className={`text-xs font-bold mr-2 ${days < 0 ? 'text-red-500' : days < 30 ? 'text-orange-500' : 'text-green-500'}`}>
                                                     {days < 0 ? '已過期' : `剩 ${days} 天`}
                                                 </div>
-                                                {/* 編輯按鈕 */}
                                                 <button onClick={() => handleEditAdWall(w)} className="p-1 text-gray-400 hover:text-blue-500 hover:bg-blue-50 rounded">
                                                     <Edit className="w-4 h-4"/>
                                                 </button>
@@ -637,8 +707,46 @@ const DashboardView = ({
                     </div>
                 )}
                 
-                {/* 人員管理 (Super Admin) */}
-                {dashboardView === 'users' && isSuperAdmin && (<div className="space-y-4"><div className={`p-4 rounded-2xl border ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-gray-200'}`}><h3 className="font-bold mb-4">人員管理 ({safeUsers.length})</h3><div className="space-y-2">{safeUsers.map(user => (<div key={user.id} className="flex justify-between items-center p-3 bg-gray-50 dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-700"><div><div className="font-bold text-sm">{user.name} <span className="text-gray-400 text-xs">({user.role})</span></div><div className="text-xs text-gray-500">{user.username}</div></div><div className="flex gap-2"><button onClick={() => onToggleUser(user)} className={`text-xs px-3 py-1 rounded font-bold ${user.status === 'suspended' ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'}`}>{user.status === 'suspended' ? '已停權' : '正常'}</button><button onClick={() => onDeleteUser(user)} className="text-gray-400 hover:text-red-500"><Trash2 className="w-4 h-4"/></button></div></div>))}</div></div></div>)}
+                {/* ★★★ 人員管理 (整合編輯功能) ★★★ */}
+                {dashboardView === 'users' && isSuperAdmin && (
+                    <div className="space-y-4">
+                        <div className={`p-4 rounded-2xl border ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-gray-200'}`}>
+                            <div className="flex justify-between items-center mb-4">
+                                <h3 className="font-bold">人員與權限管理 ({safeUsers.length})</h3>
+                                <button onClick={() => handleOpenUserEdit(null)} className="bg-green-600 text-white px-3 py-1.5 rounded-lg text-sm font-bold flex items-center gap-1 hover:bg-green-700">
+                                    <UserPlus className="w-4 h-4"/> 新增人員
+                                </button>
+                            </div>
+                            
+                            <div className="space-y-2">
+                                {safeUsers.map(user => (
+                                    <div key={user.id} className={`flex justify-between items-center p-3 rounded-xl border transition-all ${user.status === 'suspended' ? 'bg-red-50 border-red-200 dark:bg-red-900/10 dark:border-red-900' : 'bg-gray-50 border-gray-200 dark:bg-slate-900 dark:border-slate-700'}`}>
+                                        <div className="flex items-center gap-3">
+                                            <div className="w-10 h-10 rounded-full bg-gray-200 dark:bg-slate-700 overflow-hidden border border-gray-300">
+                                                {user.photoUrl ? <img src={user.photoUrl} className="w-full h-full object-cover"/> : <User className="w-full h-full p-2 text-gray-400"/>}
+                                            </div>
+                                            <div>
+                                                <div className="font-bold text-sm flex items-center gap-2">
+                                                    {user.name} 
+                                                    <span className={`text-[10px] px-1.5 py-0.5 rounded ${user.role === 'admin' ? 'bg-purple-100 text-purple-700' : 'bg-gray-200 text-gray-600'}`}>{user.role}</span>
+                                                </div>
+                                                <div className="text-xs text-gray-500 font-mono">@{user.username}</div>
+                                            </div>
+                                        </div>
+                                        <div className="flex gap-2">
+                                            <button onClick={() => handleOpenUserEdit(user)} className="p-2 text-blue-500 hover:bg-blue-100 rounded-lg transition-colors" title="編輯資料">
+                                                <Edit className="w-4 h-4"/>
+                                            </button>
+                                            <button onClick={() => onDeleteUser(user)} className={`text-xs px-3 py-1 rounded font-bold transition-colors ${user.status === 'suspended' ? 'bg-red-100 text-red-600 hover:bg-red-200' : 'bg-green-100 text-green-600 hover:bg-green-200'}`}>
+                                                {user.status === 'suspended' ? '已停權' : '正常'}
+                                            </button>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+                )}
                 
                 {/* 系統設定 */}
                 {dashboardView === 'settings' && (
@@ -690,6 +798,115 @@ const DashboardView = ({
                                     </div>
                                 ); 
                             })}
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ★★★ 人員編輯彈出視窗 (Modal) ★★★ */}
+            {editUserModal && editingUserData && (
+                <div className="fixed inset-0 z-[100] bg-black/70 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in">
+                    <div className="bg-white dark:bg-slate-900 w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+                        <div className="p-4 border-b dark:border-slate-800 bg-gray-50 dark:bg-slate-800 flex justify-between items-center">
+                            <h3 className="font-bold text-lg flex items-center gap-2 dark:text-white"><User className="w-5 h-5"/> {editingUserData.id ? '編輯人員資料與權限' : '新增人員'}</h3>
+                            <button onClick={() => setEditUserModal(false)}><X className="w-5 h-5 text-gray-500"/></button>
+                        </div>
+                        
+                        <form onSubmit={handleSaveUser} className="flex-1 overflow-y-auto custom-scrollbar p-6">
+                            <div className="flex flex-col md:flex-row gap-6">
+                                
+                                {/* 左側：照片上傳 */}
+                                <div className="flex flex-col items-center gap-3 w-full md:w-1/3 border-b md:border-b-0 md:border-r border-gray-100 dark:border-slate-700 pb-4 md:pb-0 md:pr-4">
+                                    <div className="w-32 h-32 rounded-full bg-gray-100 dark:bg-slate-800 border-4 border-white dark:border-slate-700 shadow-lg flex items-center justify-center relative overflow-hidden group cursor-pointer">
+                                        {editingUserData.photoUrl ? <img src={editingUserData.photoUrl} className="w-full h-full object-cover"/> : <ImageIcon className="w-12 h-12 text-gray-400"/>}
+                                        <input type="file" accept="image/*" onChange={handleUserImageUpload} className="absolute inset-0 opacity-0 cursor-pointer" />
+                                        <div className="absolute inset-0 bg-black/50 flex items-center justify-center text-white text-sm opacity-0 group-hover:opacity-100 transition-opacity font-bold">更換照片</div>
+                                    </div>
+                                    <div className="text-center">
+                                        <div className="text-xs text-gray-400 mb-1">大頭貼 (傳單用)</div>
+                                        <label className="px-3 py-1 bg-gray-100 dark:bg-slate-700 text-xs rounded-full cursor-pointer hover:bg-gray-200 dark:hover:bg-slate-600 transition-colors">
+                                            上傳圖片
+                                            <input type="file" accept="image/*" onChange={handleUserImageUpload} className="hidden" />
+                                        </label>
+                                    </div>
+                                </div>
+
+                                {/* 右側：詳細資料表單 */}
+                                <div className="flex-1 space-y-6">
+                                    
+                                    {/* 1. 帳號權限區 */}
+                                    <div className="bg-red-50 dark:bg-red-900/10 p-4 rounded-xl border border-red-100 dark:border-red-900/30 space-y-4">
+                                        <h4 className="text-xs font-bold text-red-600 dark:text-red-400 flex items-center gap-1 border-b border-red-200 dark:border-red-800 pb-2 mb-2">
+                                            <Shield className="w-3 h-3"/> 帳號權限管理
+                                        </h4>
+                                        <div className="grid grid-cols-2 gap-4">
+                                            <div>
+                                                <label className="text-xs font-bold text-gray-500 mb-1 block">登入帳號</label>
+                                                <input required value={editingUserData.username} onChange={e=>setEditingUserData({...editingUserData, username: e.target.value})} className="w-full p-2 border rounded dark:bg-slate-900 dark:border-slate-600 dark:text-white" disabled={!!editingUserData.id} placeholder="設定後不可改"/>
+                                            </div>
+                                            <div>
+                                                <label className="text-xs font-bold text-gray-500 mb-1 block">登入密碼</label>
+                                                <input required value={editingUserData.password} onChange={e=>setEditingUserData({...editingUserData, password: e.target.value})} className="w-full p-2 border rounded dark:bg-slate-900 dark:border-slate-600 dark:text-white" placeholder="可隨時重設"/>
+                                            </div>
+                                        </div>
+                                        <div className="grid grid-cols-2 gap-4">
+                                            <div>
+                                                <label className="text-xs font-bold text-gray-500 mb-1 block">系統權限</label>
+                                                <select value={editingUserData.role} onChange={e=>setEditingUserData({...editingUserData, role: e.target.value})} className="w-full p-2 border rounded dark:bg-slate-900 dark:border-slate-600 dark:text-white">
+                                                    <option value="user">一般業務 (User)</option>
+                                                    <option value="admin">管理員 (Admin)</option>
+                                                    <option value="super_admin">超級管理員</option>
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label className="text-xs font-bold text-gray-500 mb-1 block">帳號狀態</label>
+                                                <div className="flex gap-2 mt-2">
+                                                    <label className="flex items-center gap-1 cursor-pointer">
+                                                        <input type="radio" name="status" value="active" checked={editingUserData.status !== 'suspended'} onChange={() => setEditingUserData({...editingUserData, status: 'active'})} />
+                                                        <span className="text-sm">啟用</span>
+                                                    </label>
+                                                    <label className="flex items-center gap-1 cursor-pointer">
+                                                        <input type="radio" name="status" value="suspended" checked={editingUserData.status === 'suspended'} onChange={() => setEditingUserData({...editingUserData, status: 'suspended'})} />
+                                                        <span className="text-sm text-red-500">停權</span>
+                                                    </label>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* 2. 名片資料區 */}
+                                    <div className="bg-blue-50 dark:bg-blue-900/10 p-4 rounded-xl border border-blue-100 dark:border-blue-900/30 space-y-4">
+                                        <h4 className="text-xs font-bold text-blue-600 dark:text-blue-400 flex items-center gap-1 border-b border-blue-200 dark:border-blue-800 pb-2 mb-2">
+                                            <Briefcase className="w-3 h-3"/> 業務名片資料 (前台顯示)
+                                        </h4>
+                                        <div>
+                                            <label className="text-xs font-bold text-gray-500 mb-1 block">真實姓名</label>
+                                            <input required value={editingUserData.name} onChange={e=>setEditingUserData({...editingUserData, name: e.target.value})} className="w-full p-2 border rounded dark:bg-slate-900 dark:border-slate-600 dark:text-white" placeholder="業務顯示名稱"/>
+                                        </div>
+                                        <div className="grid grid-cols-2 gap-4">
+                                            <div>
+                                                <label className="text-xs font-bold text-gray-500 mb-1 block">聯絡電話</label>
+                                                <input value={editingUserData.phone} onChange={e=>setEditingUserData({...editingUserData, phone: e.target.value})} className="w-full p-2 border rounded dark:bg-slate-900 dark:border-slate-600 dark:text-white" placeholder="09xx-xxx-xxx"/>
+                                            </div>
+                                            <div>
+                                                <label className="text-xs font-bold text-gray-500 mb-1 block">LINE ID</label>
+                                                <input value={editingUserData.lineId} onChange={e=>setEditingUserData({...editingUserData, lineId: e.target.value})} className="w-full p-2 border rounded dark:bg-slate-900 dark:border-slate-600 dark:text-white"/>
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <label className="text-xs font-bold text-gray-500 mb-1 block">營業員證號</label>
+                                            <input value={editingUserData.licenseId} onChange={e=>setEditingUserData({...editingUserData, licenseId: e.target.value})} className="w-full p-2 border rounded dark:bg-slate-900 dark:border-slate-600 dark:text-white" placeholder="(110) 登字第 xxxxxx 號"/>
+                                        </div>
+                                    </div>
+
+                                </div>
+                            </div>
+                        </form>
+                        <div className="p-4 border-t dark:border-slate-800 bg-gray-50 dark:bg-slate-800 flex justify-end gap-3">
+                            <button onClick={() => setEditUserModal(false)} className="px-5 py-2.5 rounded-xl font-bold text-gray-500 hover:bg-gray-200 dark:hover:bg-slate-700 transition-colors">取消</button>
+                            <button onClick={handleSaveUser} className="px-5 py-2.5 rounded-xl font-bold bg-blue-600 text-white hover:bg-blue-700 shadow-lg transition-transform active:scale-95 flex items-center gap-2">
+                                <Save className="w-4 h-4"/> 儲存設定
+                            </button>
                         </div>
                     </div>
                 </div>

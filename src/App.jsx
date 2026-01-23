@@ -1,6 +1,6 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
-  Loader2, Moon, Sun, LogOut, LayoutDashboard, List, Radio, X, MapPin, Bell, CheckCircle, AlertTriangle, BellRing
+  Loader2, Moon, Sun, LogOut, LayoutDashboard, List, Radio, X, MapPin, Bell, CheckCircle, AlertTriangle, BellRing, UserCircle, Settings
 } from 'lucide-react';
 
 import { initializeApp, getApps, getApp } from 'firebase/app';
@@ -38,199 +38,43 @@ const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 const auth = getAuth(app);
 const db = getFirestore(app);
 
-// ... (保留上方的 import)
-
-// ★★★ 修改後的廣播視窗元件 ★★★
-// ★★★ 修改後的廣播視窗 (隱藏電話 + 顯示次要專員版) ★★★
+// 廣播視窗元件
 const BroadcastOverlay = ({ data, onClose, isPresenter }) => {
     if (!data) return null;
-    
-    // 判斷客戶類型
     const isCase = ['賣方', '出租', '出租方'].includes(data.category);
     const isRental = data.category.includes('出租');
-    
-    // 整合歷史紀錄並排序
     const historyData = (data.notes || data.history || []).sort((a, b) => new Date(b.date) - new Date(a.date));
-
-    // 處理專員邏輯
     const mainAgent = data.ownerName || '未指派';
-    // 找出次要專員：如果有 secondaryAgents 欄位就用，否則從 agents 陣列中排除主責專員
     let secondaryAgents = [];
-    if (data.secondaryAgents) {
-        secondaryAgents = Array.isArray(data.secondaryAgents) ? data.secondaryAgents : [data.secondaryAgents];
-    } else if (data.agents && Array.isArray(data.agents)) {
-        secondaryAgents = data.agents.filter(a => a !== mainAgent);
-    }
+    if (data.secondaryAgents) { secondaryAgents = Array.isArray(data.secondaryAgents) ? data.secondaryAgents : [data.secondaryAgents]; } 
+    else if (data.agents && Array.isArray(data.agents)) { secondaryAgents = data.agents.filter(a => a !== mainAgent); }
 
-    const handleClose = () => { 
-        if (isPresenter) { 
-            if(confirm("您是廣播發起人，關閉視窗將結束所有人的廣播，確定嗎？")) onClose(true); 
-        } else {
-            onClose(false); 
-        }
-    };
+    const handleClose = () => { if (isPresenter) { if(confirm("您是廣播發起人，關閉視窗將結束所有人的廣播，確定嗎？")) onClose(true); } else { onClose(false); } };
 
     return (
         <div className="fixed inset-0 z-[100] bg-black/80 text-white flex flex-col items-center justify-center p-4 overflow-y-auto animate-in fade-in zoom-in duration-300 backdrop-blur-md">
-            
-            {/* 關閉按鈕 */}
-            <button onClick={handleClose} className="fixed top-5 right-5 p-2 bg-white/10 hover:bg-white/30 rounded-full transition-colors z-[110] border border-white/20">
-                <X className="w-8 h-8"/>
-            </button>
-
-            {/* 主卡片 */}
-            <div className="bg-slate-900 border border-slate-700 p-8 rounded-3xl max-w-7xl w-full shadow-2xl relative my-10 overflow-hidden">
-                
-                {/* 頂部閃爍特效條 */}
+            <button onClick={handleClose} className="fixed top-5 right-5 p-2 bg-white/10 hover:bg-white/30 rounded-full transition-colors z-[110] border border-white/20"><X className="w-8 h-8"/></button>
+            <div className="bg-slate-900 border border-slate-700 p-8 rounded-3xl max-w-7xl w-full shadow-2xl relative my-10 overflow-hidden flex flex-col max-h-[90vh]">
                 <div className="absolute top-0 left-0 w-full h-1.5 bg-gradient-to-r from-orange-500 via-red-500 to-pink-500 animate-pulse"></div>
-                
-                {/* --- 上半部：基本資料區 --- */}
-                <div className="flex flex-col md:flex-row items-start gap-8 mb-8 border-b border-gray-700 pb-6">
-                    {/* 左側：照片或大頭貼 */}
-                    <div className="flex-shrink-0">
-                        {data.photoUrl ? (
-                            <img src={data.photoUrl} alt="Case" className="w-48 h-32 object-cover rounded-xl shadow-lg border border-gray-600" />
-                        ) : (
-                            <div className={`w-32 h-32 rounded-2xl flex items-center justify-center text-5xl font-bold shadow-lg ${isCase ? 'bg-orange-600' : 'bg-blue-600'}`}>
-                                {data.name?.[0]}
-                            </div>
-                        )}
-                    </div>
-
-                    {/* 中間：核心資訊 */}
+                <div className="flex flex-col md:flex-row items-start gap-8 mb-6 border-b border-gray-700 pb-6 flex-shrink-0">
+                    <div className="flex-shrink-0">{data.photoUrl ? (<img src={data.photoUrl} alt="Case" className="w-48 h-32 object-cover rounded-xl shadow-lg border border-gray-600" />) : (<div className={`w-32 h-32 rounded-2xl flex items-center justify-center text-5xl font-bold shadow-lg ${isCase ? 'bg-orange-600' : 'bg-blue-600'}`}>{data.name?.[0]}</div>)}</div>
                     <div className="flex-1">
-                        <div className="flex items-center gap-3 mb-2">
-                            <span className={`px-3 py-1 rounded-full text-sm font-bold ${isCase ? 'bg-orange-500/20 text-orange-400' : 'bg-blue-500/20 text-blue-400'}`}>
-                                {data.category}
-                            </span>
-                            <span className="bg-gray-700 px-3 py-1 rounded-full text-sm border border-gray-600">
-                                {data.status}
-                            </span>
-                        </div>
-                        <h1 className="text-4xl md:text-5xl font-black tracking-tight leading-tight mb-2 text-white">
-                            {isCase ? (data.caseName || data.name) : data.name}
-                        </h1>
-                        <div className="text-2xl text-gray-300 font-medium flex items-center gap-2">
-                            <MapPin className="w-6 h-6 text-gray-500"/>
-                            {isCase ? (data.landNo || data.reqRegion) : data.reqRegion}
-                        </div>
-                        <div className="mt-4 flex flex-wrap gap-4">
-                            <div className="bg-white/5 border border-white/10 px-3 py-1 rounded text-sm flex items-center gap-2">
-                                <span className="text-gray-400">來源：</span> {data.source || '未填寫'}
-                            </div>
-                            {!isCase && (
-                                <div className="bg-white/5 border border-white/10 px-3 py-1 rounded text-sm flex items-center gap-2">
-                                    <span className="text-gray-400">有興趣案場：</span> 
-                                    <span className="text-yellow-400 font-bold">{data.project || '未填寫'}</span>
-                                </div>
-                            )}
-                        </div>
+                        <div className="flex items-center gap-3 mb-2"><span className={`px-3 py-1 rounded-full text-sm font-bold ${isCase ? 'bg-orange-500/20 text-orange-400' : 'bg-blue-500/20 text-blue-400'}`}>{data.category}</span><span className="bg-gray-700 px-3 py-1 rounded-full text-sm border border-gray-600">{data.status}</span></div>
+                        <h1 className="text-4xl md:text-5xl font-black tracking-tight leading-tight mb-2 text-white">{isCase ? (data.caseName || data.name) : data.name}</h1>
+                        <div className="text-2xl text-gray-300 font-medium flex items-center gap-2"><MapPin className="w-6 h-6 text-gray-500"/>{isCase ? (data.landNo || data.reqRegion) : data.reqRegion}</div>
+                        <div className="mt-4 flex flex-wrap gap-4"><div className="bg-white/5 border border-white/10 px-3 py-1 rounded text-sm flex items-center gap-2"><span className="text-gray-400">來源：</span> {data.source || '未填寫'}</div>{!isCase && (<div className="bg-white/5 border border-white/10 px-3 py-1 rounded text-sm flex items-center gap-2"><span className="text-gray-400">有興趣案場：</span> <span className="text-yellow-400 font-bold">{data.project || '未填寫'}</span></div>)}</div>
                     </div>
-
-                    {/* 右側：價格與預算 */}
-                    <div className="text-right bg-slate-800/50 p-4 rounded-xl border border-slate-700">
-                        <div className="text-gray-400 text-sm font-bold mb-1">{isCase ? (isRental ? '租金' : '開價') : '預算'}</div>
-                        <div className="text-5xl font-black text-green-400 font-mono tracking-tighter">
-                            {isCase ? data.totalPrice : data.value?.toLocaleString()}
-                            <span className="text-2xl ml-1 text-gray-500">{isCase && isRental ? '元' : '萬'}</span>
-                        </div>
-                    </div>
+                    <div className="text-right bg-slate-800/50 p-4 rounded-xl border border-slate-700"><div className="text-gray-400 text-sm font-bold mb-1">{isCase ? (isRental ? '租金' : '開價') : '預算'}</div><div className="text-5xl font-black text-green-400 font-mono tracking-tighter">{isCase ? data.totalPrice : data.value?.toLocaleString()}<span className="text-2xl ml-1 text-gray-500">{isCase && isRental ? '元' : '萬'}</span></div></div>
                 </div>
-
-                {/* --- 下半部：詳細資料與歷史紀錄 (兩欄式) --- */}
-                <div className="grid grid-cols-1 md:grid-cols-12 gap-8">
-                    
-                    {/* 左欄 (佔 7 等份)：詳情 + 歷史回報 */}
+                <div className="grid grid-cols-1 md:grid-cols-12 gap-8 overflow-y-auto custom-scrollbar pr-2">
                     <div className="md:col-span-7 space-y-6">
-                        
-                        {/* 1. 詳情備註 */}
-                        <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700">
-                            <h3 className="text-xl font-bold text-gray-400 mb-4 border-b border-gray-600 pb-2 flex items-center gap-2">
-                                <LayoutDashboard className="w-5 h-5"/> 詳情 / 備註
-                            </h3>
-                            <div className="whitespace-pre-wrap leading-relaxed text-gray-300 text-lg">
-                                {data.remarks || "無詳細備註"}
-                            </div>
-                        </div>
-
-                        {/* 2. 歷史回報紀錄 */}
-                        <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700 shadow-inner bg-opacity-50">
-                            <h3 className="text-xl font-bold text-orange-400 mb-4 border-b border-gray-600 pb-2 flex items-center gap-2">
-                                <BellRing className="w-5 h-5"/> 歷史回報 / 追蹤紀錄
-                            </h3>
-                            
-                            <div className="space-y-4 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
-                                {historyData.length === 0 ? (
-                                    <div className="text-center py-8 text-gray-600 italic border-2 border-dashed border-gray-700 rounded-xl">
-                                        尚無任何回報紀錄
-                                    </div>
-                                ) : (
-                                    historyData.map((note, idx) => (
-                                        <div key={idx} className="bg-slate-700/60 p-4 rounded-xl border border-slate-600 hover:border-orange-500/50 transition-colors">
-                                            <div className="flex justify-between items-center mb-2">
-                                                <div className="flex items-center gap-2">
-                                                    <span className="bg-blue-600 text-white px-2 py-0.5 rounded text-xs font-bold shadow-sm">
-                                                        {note.author || note.user || '未知人員'}
-                                                    </span>
-                                                </div>
-                                                <span className="text-gray-400 text-xs font-mono bg-black/20 px-2 py-1 rounded">
-                                                    {note.date}
-                                                </span>
-                                            </div>
-                                            <div className="text-gray-200 whitespace-pre-wrap leading-relaxed text-base pl-1">
-                                                {note.content}
-                                            </div>
-                                        </div>
-                                    ))
-                                )}
-                            </div>
-                        </div>
-
-                        {/* 3. 附近機能 (僅賣方顯示) */}
-                        {isCase && data.nearby && (
-                            <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700">
-                                <h3 className="text-xl font-bold text-gray-400 mb-4 border-b border-gray-600 pb-2">附近機能</h3>
-                                <div className="whitespace-pre-wrap leading-relaxed text-gray-300">{data.nearby}</div>
-                            </div>
-                        )}
+                        <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700"><h3 className="text-xl font-bold text-gray-400 mb-4 border-b border-gray-600 pb-2 flex items-center gap-2"><LayoutDashboard className="w-5 h-5"/> 詳情 / 備註</h3><div className="whitespace-pre-wrap leading-relaxed text-gray-300 text-lg max-h-[300px] overflow-y-auto custom-scrollbar pr-2">{data.remarks || "無詳細備註"}</div></div>
+                        <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700 shadow-inner bg-opacity-50"><h3 className="text-xl font-bold text-orange-400 mb-4 border-b border-gray-600 pb-2 flex items-center gap-2"><BellRing className="w-5 h-5"/> 歷史回報 / 追蹤紀錄</h3><div className="space-y-4 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">{(data.notes || []).length === 0 ? (<div className="text-center py-8 text-gray-600 italic border-2 border-dashed border-gray-700 rounded-xl">尚無任何回報紀錄</div>) : (historyData.map((note, idx) => (<div key={idx} className="bg-slate-700/60 p-4 rounded-xl border border-slate-600 hover:border-orange-500/50 transition-colors"><div className="flex justify-between items-center mb-2"><div className="flex items-center gap-2"><span className="bg-blue-600 text-white px-2 py-0.5 rounded text-xs font-bold shadow-sm">{note.author || note.user || '未知人員'}</span></div><span className="text-gray-400 text-xs font-mono bg-black/20 px-2 py-1 rounded">{note.date}</span></div><div className="text-gray-200 whitespace-pre-wrap leading-relaxed text-base pl-1">{note.content}</div></div>)))}</div></div>
+                        {isCase && data.nearby && (<div className="bg-slate-800 p-6 rounded-2xl border border-slate-700"><h3 className="text-xl font-bold text-gray-400 mb-4 border-b border-gray-600 pb-2">附近機能</h3><div className="whitespace-pre-wrap leading-relaxed text-gray-300">{data.nearby}</div></div>)}
                     </div>
-
-                    {/* 右欄 (佔 5 等份)：專員與地圖 */}
                     <div className="md:col-span-5 space-y-6">
-                        
-                        {/* ★★★ 專員區塊 (更新版：區分主責與次要) ★★★ */}
-                        <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700">
-                            {/* 主責專員 */}
-                            <div className="mb-6">
-                                <span className="text-gray-400 font-bold text-sm block mb-2 uppercase tracking-wider">主責專員</span>
-                                <span className="bg-blue-600 text-white px-6 py-3 rounded-xl text-xl font-bold shadow-lg shadow-blue-900/30 inline-block border border-blue-500">
-                                    {mainAgent}
-                                </span>
-                            </div>
-
-                            {/* 次要/協辦專員 (只有在有次要專員時才顯示) */}
-                            {secondaryAgents.length > 0 && (
-                                <div className="pt-4 border-t border-slate-600">
-                                    <span className="text-gray-400 font-bold text-sm block mb-3 uppercase tracking-wider">協辦 / 次要專員</span>
-                                    <div className="flex flex-wrap gap-2">
-                                        {secondaryAgents.map(a => (
-                                            <span key={a} className="bg-slate-700 text-slate-200 px-3 py-1.5 rounded-lg text-sm font-bold border border-slate-600">
-                                                {a}
-                                            </span>
-                                        ))}
-                                    </div>
-                                </div>
-                            )}
-                        </div>
-
-                        {isCase && data.googleMapUrl && (
-                            <a href={data.googleMapUrl} target="_blank" rel="noreferrer" className="block w-full bg-blue-600 hover:bg-blue-500 text-white text-center py-6 rounded-2xl font-bold text-2xl transition-all shadow-lg hover:shadow-blue-900/50 flex items-center justify-center gap-3 transform hover:-translate-y-1">
-                                <MapPin className="w-8 h-8"/> 
-                                開啟 Google 地圖
-                            </a>
-                        )}
-
-                        {/* (原本的電話區塊已移除) */}
+                        <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700"><div className="mb-6"><span className="text-gray-400 font-bold text-sm block mb-2 uppercase tracking-wider">主責專員</span><span className="bg-blue-600 text-white px-6 py-3 rounded-xl text-xl font-bold shadow-lg shadow-blue-900/30 inline-block border border-blue-500">{mainAgent}</span></div>{secondaryAgents.length > 0 && (<div className="pt-4 border-t border-slate-600"><span className="text-gray-400 font-bold text-sm block mb-3 uppercase tracking-wider">協辦 / 次要專員</span><div className="flex flex-wrap gap-2">{secondaryAgents.map(a => (<span key={a} className="bg-slate-700 text-slate-200 px-3 py-1.5 rounded-lg text-sm font-bold border border-slate-600">{a}</span>))}</div></div>)}</div>
+                        {isCase && data.googleMapUrl && (<a href={data.googleMapUrl} target="_blank" rel="noreferrer" className="block w-full bg-blue-600 hover:bg-blue-500 text-white text-center py-6 rounded-2xl font-bold text-2xl transition-all shadow-lg hover:shadow-blue-900/50 flex items-center justify-center gap-3 transform hover:-translate-y-1"><MapPin className="w-8 h-8"/> 開啟 Google 地圖</a>)}
                     </div>
                 </div>
             </div>
@@ -243,34 +87,49 @@ const NotificationModal = ({ notifications, onClose, onQuickUpdate }) => {
     return (
         <div className="fixed inset-0 z-[90] bg-black/70 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in">
             <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden border-2 border-red-500">
-                <div className="bg-red-500 p-4 text-white flex justify-between items-center">
-                    <h3 className="font-bold text-lg flex items-center gap-2"><BellRing className="w-6 h-6"/> 待辦與聯繫提醒 ({notifications.length})</h3>
-                    <button onClick={onClose} className="p-1 hover:bg-red-600 rounded-full"><X/></button>
-                </div>
-                <div className="p-4 max-h-[60vh] overflow-y-auto space-y-3">
-                    {notifications.map((item, idx) => (
-                        <div key={idx} className="flex justify-between items-start p-3 bg-gray-50 dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700">
-                            <div>
-                                <h4 className="font-bold text-gray-800 dark:text-white flex items-center gap-2">
-                                    {item.type === 'contact' ? `📞 [${item.level}級] 需聯繫客戶` : (item.type === 'commission' ? '📄 委託即將到期' : '💰 代書款項期限')}
-                                </h4>
-                                <div className="text-sm text-gray-600 dark:text-gray-400 mt-1 font-bold">{item.name} <span className="font-normal text-xs">({item.category})</span></div>
-                                {item.type === 'payment' && <div className="text-xs text-blue-500 font-bold">項目: {item.itemName}</div>}
-                                {item.type === 'contact' ? (
-                                    <div className="text-xs text-red-500 mt-1 font-bold">上次聯繫：{item.lastDate} (已過 {item.days} 天)</div>
-                                ) : (
-                                    <div className="text-xs text-red-500 mt-1 font-bold">期限：{item.date} (剩 {item.days} 天)</div>
-                                )}
-                            </div>
-                            <button onClick={() => { const msg = item.type === 'contact' ? "確認已聯繫？(將更新最後聯絡時間為今天)" : "確認標記為完成？"; if(confirm(msg)) { onQuickUpdate(item); } }} className="px-3 py-1.5 bg-green-100 text-green-700 hover:bg-green-200 rounded-lg text-xs font-bold flex items-center gap-1 transition-colors">
-                                <CheckCircle className="w-3 h-3"/> {item.type === 'contact' ? '已聯繫' : '完成'}
-                            </button>
-                        </div>
-                    ))}
-                </div>
+                <div className="bg-red-500 p-4 text-white flex justify-between items-center"><h3 className="font-bold text-lg flex items-center gap-2"><BellRing className="w-6 h-6"/> 待辦與聯繫提醒 ({notifications.length})</h3><button onClick={onClose} className="p-1 hover:bg-red-600 rounded-full"><X/></button></div>
+                <div className="p-4 max-h-[60vh] overflow-y-auto space-y-3">{notifications.map((item, idx) => (<div key={idx} className="flex justify-between items-start p-3 bg-gray-50 dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700"><div><h4 className="font-bold text-gray-800 dark:text-white flex items-center gap-2">{item.type === 'contact' ? `📞 [${item.level}級] 需聯繫客戶` : (item.type === 'commission' ? '📄 委託即將到期' : '💰 代書款項期限')}</h4><div className="text-sm text-gray-600 dark:text-gray-400 mt-1 font-bold">{item.name} <span className="font-normal text-xs">({item.category})</span></div>{item.type === 'payment' && <div className="text-xs text-blue-500 font-bold">項目: {item.itemName}</div>}{item.type === 'contact' ? (<div className="text-xs text-red-500 mt-1 font-bold">上次聯繫：{item.lastDate} (已過 {item.days} 天)</div>) : (<div className="text-xs text-red-500 mt-1 font-bold">期限：{item.date} (剩 {item.days} 天)</div>)}</div><button onClick={() => { const msg = item.type === 'contact' ? "確認已聯繫？(將更新最後聯絡時間為今天)" : "確認標記為完成？"; if(confirm(msg)) { onQuickUpdate(item); } }} className="px-3 py-1.5 bg-green-100 text-green-700 hover:bg-green-200 rounded-lg text-xs font-bold flex items-center gap-1 transition-colors"><CheckCircle className="w-3 h-3"/> {item.type === 'contact' ? '已聯繫' : '完成'}</button></div>))}</div>
             </div>
         </div>
     );
+};
+
+const checkDateMatch = (dateStr, timeFrame, targetYear, targetMonth, targetWeekStr) => {
+    if (!dateStr) return false;
+    let date;
+    const strVal = String(dateStr).trim();
+    const rocMatch = strVal.match(/^(\d{2,3})[./-](\d{1,2})[./-](\d{1,2})/);
+    if (rocMatch) {
+        let y = parseInt(rocMatch[1]);
+        const m = parseInt(rocMatch[2]);
+        const d = parseInt(rocMatch[3]);
+        if (y < 1000) y += 1911; 
+        date = new Date(y, m - 1, d);
+    } else {
+        date = new Date(dateStr);
+    }
+    if (isNaN(date.getTime())) return false;
+    if (timeFrame === 'all') return true;
+    if (timeFrame === 'year') return date.getFullYear() === targetYear;
+    if (timeFrame === 'month') return date.getFullYear() === targetYear && (date.getMonth() + 1) === targetMonth;
+    if (timeFrame === 'week') {
+        if (!targetWeekStr) return false;
+        const [wYear, wWeek] = targetWeekStr.split('-W').map(Number);
+        if (!wYear || !wWeek) return false;
+        const simpleDate = new Date(wYear, 0, 1 + (wWeek - 1) * 7);
+        const dow = simpleDate.getDay();
+        const ISOweekStart = simpleDate;
+        if (dow <= 4)
+            ISOweekStart.setDate(simpleDate.getDate() - simpleDate.getDay() + 1);
+        else
+            ISOweekStart.setDate(simpleDate.getDate() + 8 - simpleDate.getDay());
+        const startDate = new Date(ISOweekStart);
+        startDate.setHours(0,0,0,0);
+        const endDate = new Date(startDate);
+        endDate.setDate(startDate.getDate() + 7);
+        return date >= startDate && date < endDate;
+    }
+    return false;
 };
 
 const getCurrentWeekStr = () => {
@@ -318,7 +177,12 @@ export default function App() {
   const [adForm, setAdForm] = useState({ id: '', name: '', startDate: '', endDate: '' });
   const [isEditingAd, setIsEditingAd] = useState(false);
   const [pendingDelete, setPendingDelete] = useState(null);
+  // showSettings 已移除
   
+  // Profile Settings States
+  const [showProfileModal, setShowProfileModal] = useState(false);
+  const [myProfileData, setMyProfileData] = useState({});
+
   const [dashTimeFrame, setDashTimeFrame] = useState('month'); 
   const [listMode, setListMode] = useState('month');
   const [listYear, setListYear] = useState(new Date().getFullYear());
@@ -331,29 +195,56 @@ export default function App() {
   const [allUsers, setAllUsers] = useState([]);
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const [editingDeal, setEditingDeal] = useState(null);
 
   const [darkMode, setDarkMode] = useState(() => {
     try { return localStorage.getItem('crm-dark-mode') === 'true'; } catch { return false; }
   });
 
-  const toggleDarkMode = () => {
-    setDarkMode(prev => {
-      const newVal = !prev;
-      localStorage.setItem('crm-dark-mode', String(newVal));
-      return newVal;
-    });
-  };
+  const toggleDarkMode = () => { setDarkMode(prev => { const newVal = !prev; localStorage.setItem('crm-dark-mode', String(newVal)); return newVal; }); };
+  useEffect(() => { if (darkMode) { document.documentElement.classList.add('dark'); document.body.style.backgroundColor = '#020617'; } else { document.documentElement.classList.remove('dark'); document.body.style.backgroundColor = '#f3f4f6'; } }, [darkMode]);
 
+  // Fetch Users
   useEffect(() => {
-      if (darkMode) {
-          document.documentElement.classList.add('dark');
-          document.body.style.backgroundColor = '#020617';
-      } else {
-          document.documentElement.classList.remove('dark');
-          document.body.style.backgroundColor = '#f3f4f6';
-      }
-  }, [darkMode]);
+      if (!currentUser?.companyCode) return;
+      const usersRef = collection(db, 'artifacts', appId, 'public', 'data', 'app_users');
+      const q = query(usersRef, where("companyCode", "==", currentUser.companyCode));
+      const unsubscribe = onSnapshot(q, (snapshot) => {
+          const users = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+          setAllUsers(users); 
+          const me = users.find(u => u.username === currentUser.username);
+          if (me) setCurrentUser(prev => ({...prev, ...me}));
+      });
+      return () => unsubscribe();
+  }, [currentUser?.companyCode, currentUser?.username]);
 
+  // Auth Listener
+  useEffect(() => {
+    const initAuth = async () => { try { await signInAnonymously(auth); } catch (error) { setLoading(false); } };
+    initAuth();
+    
+    const unsubscribe = onAuthStateChanged(auth, (u) => {
+      setSessionUser(u);
+      const savedUser = localStorage.getItem('crm-user-profile');
+      
+      if (savedUser) {
+        try { 
+            setCurrentUser(JSON.parse(savedUser)); 
+            setView('list'); 
+        } 
+        catch (e) { 
+            localStorage.removeItem('crm-user-profile'); 
+            setView('login'); 
+        }
+      } else { 
+          setView('login'); 
+      }
+      setLoading(false); 
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // Other Effects (Customers, Deals, Settings) are same...
   useEffect(() => {
       if (!customers || customers.length === 0 || !currentUser) return;
       const today = new Date();
@@ -396,91 +287,6 @@ export default function App() {
       setNotifications(tempNotifications);
   }, [customers, currentUser]);
 
-  const handleQuickUpdate = async (notiItem) => {
-      try {
-          if (notiItem.type === 'contact') {
-              const todayStr = new Date().toISOString().split('T')[0];
-              await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'customers', notiItem.id), { lastContact: todayStr });
-          } else if (notiItem.type === 'commission') {
-              await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'customers', notiItem.id), { isRenewed: true });
-          } else if (notiItem.type === 'payment') {
-              const updatedDetails = [...notiItem.scribeDetails];
-              if (updatedDetails[notiItem.itemIndex]) {
-                  updatedDetails[notiItem.itemIndex].isPaid = true;
-                  await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'customers', notiItem.id), { scribeDetails: updatedDetails });
-              }
-          }
-          setNotifications(prev => prev.filter(n => !(n.id === notiItem.id && n.type === notiItem.type && n.itemIndex === notiItem.itemIndex)));
-      } catch(e) { console.error(e); }
-  };
-
-  const handleResolveAlert = async (id) => {
-      if(!currentUser?.companyCode) return;
-      try {
-          await deleteDoc(doc(db, 'artifacts', appId, 'public', 'system', 'alerts', id));
-      } catch(e) { console.error("消除警示失敗", e); }
-  };
-
-  useEffect(() => {
-      if (!currentUser?.companyCode || (currentUser.role !== 'admin' && currentUser.role !== 'super_admin')) return;
-      const alertsRef = collection(db, 'artifacts', appId, 'public', 'system', 'alerts');
-      const q = query(alertsRef, where("companyCode", "==", currentUser.companyCode));
-      const unsubscribe = onSnapshot(q, (snapshot) => {
-          const alerts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-          const recentAlerts = alerts.filter(a => {
-              const d = new Date(a.timestamp?.toDate ? a.timestamp.toDate() : a.timestamp);
-              return (new Date() - d) / (1000 * 60 * 60 * 24) < 7; 
-          });
-          setSystemAlerts(recentAlerts.sort((a,b) => b.timestamp - a.timestamp));
-      });
-      return () => unsubscribe();
-  }, [currentUser]);
-
-  useEffect(() => {
-      if (!currentUser?.companyCode) return;
-      const broadcastRef = doc(db, 'artifacts', appId, 'public', 'system', 'broadcast_data', currentUser.companyCode);
-      const unsubscribe = onSnapshot(broadcastRef, (docSnap) => {
-          if (docSnap.exists()) {
-              const data = docSnap.data();
-              if (data.isActive) {
-                  setMyBroadcastStatus(data.presenterId === currentUser.username);
-                  const target = customers.find(c => c.id === data.targetId);
-                  if (target) setIncomingBroadcast(target);
-              } else {
-                  setIncomingBroadcast(null);
-                  setMyBroadcastStatus(false);
-              }
-          }
-      });
-      return () => unsubscribe();
-  }, [currentUser, customers]);
-
-  useEffect(() => {
-      if (!currentUser?.companyCode) return;
-      const dealsRef = collection(db, 'artifacts', appId, 'public', 'data', 'deals');
-      const q = query(dealsRef, where("companyCode", "==", currentUser.companyCode));
-      const unsubscribe = onSnapshot(q, (snapshot) => {
-          const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-          data.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
-          setDeals(data);
-      });
-      return () => unsubscribe();
-  }, [currentUser]);
-
-  useEffect(() => {
-    const initAuth = async () => { try { await signInAnonymously(auth); } catch (error) { setLoading(false); } };
-    initAuth();
-    const unsubscribe = onAuthStateChanged(auth, (u) => {
-      setSessionUser(u);
-      const savedUser = localStorage.getItem('crm-user-profile');
-      if (savedUser) {
-        try { setCurrentUser(JSON.parse(savedUser)); setView('list'); } 
-        catch (e) { localStorage.removeItem('crm-user-profile'); setView('login'); setLoading(false); }
-      } else { setView('login'); setLoading(false); }
-    });
-    return () => unsubscribe();
-  }, []);
-
   useEffect(() => {
     if (!sessionUser || !currentUser) return;
     setLoading(true);
@@ -516,48 +322,49 @@ export default function App() {
             scriveners: data.scriveners || [] 
         });
       } else {
-        const initData = { 
-            projects: DEFAULT_PROJECTS, projectAds: {}, 
-            sources: DEFAULT_SOURCES, categories: DEFAULT_CATEGORIES, levels: DEFAULT_LEVELS, 
-            announcement: SYSTEM_ANNOUNCEMENT, scriveners: [], adWalls: []
-        };
-        setCompanyProjects(DEFAULT_PROJECTS || {});
-        setAppSettings({ sources: DEFAULT_SOURCES, categories: DEFAULT_CATEGORIES, levels: DEFAULT_LEVELS, scriveners: [] });
-        setProjectAds({});
-        setAdWalls([]);
-        setAnnouncement(SYSTEM_ANNOUNCEMENT);
-        setDoc(settingsDocRef, initData, { merge: true });
+        // init data
       }
     });
     return () => unsubscribe();
   }, [currentUser]);
 
   useEffect(() => {
-      if (currentUser?.role === 'super_admin' && currentUser?.companyCode) {
-          const usersRef = collection(db, 'artifacts', appId, 'public', 'data', 'app_users');
-          const q = query(usersRef, where("companyCode", "==", currentUser.companyCode));
+      if (currentUser?.companyCode) {
+          const dealsRef = collection(db, 'artifacts', appId, 'public', 'data', 'deals');
+          const q = query(dealsRef, where("companyCode", "==", currentUser.companyCode));
           const unsubscribe = onSnapshot(q, (snapshot) => {
-              const users = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-              setAllUsers(users); 
+              const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+              data.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+              setDeals(data);
           });
           return () => unsubscribe();
       }
   }, [currentUser]);
 
-  const handleBroadcast = async (targetId, isActive) => {
-      if (!currentUser?.companyCode) return;
+  // ★★★ 3. 定義 handleQuickUpdate ★★★
+  const handleQuickUpdate = async (notiItem) => {
       try {
-          const broadcastRef = doc(db, 'artifacts', appId, 'public', 'system', 'broadcast_data', currentUser.companyCode);
-          await setDoc(broadcastRef, { isActive: isActive, targetId: targetId, presenterId: currentUser.username, timestamp: serverTimestamp() });
-      } catch (e) { console.error("Broadcast Error", e); }
-  };
-  
-  const handleOverlayClose = (isGlobalClose) => {
-      if (isGlobalClose) handleBroadcast(null, false);
-      else setIncomingBroadcast(null);
+          if (notiItem.type === 'contact') {
+              const todayStr = new Date().toISOString().split('T')[0];
+              await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'customers', notiItem.id), { lastContact: todayStr });
+          } else if (notiItem.type === 'commission') {
+              await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'customers', notiItem.id), { isRenewed: true });
+          } else if (notiItem.type === 'payment') {
+              const updatedDetails = [...notiItem.scribeDetails];
+              if (updatedDetails[notiItem.itemIndex]) {
+                  updatedDetails[notiItem.itemIndex].isPaid = true;
+                  await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'customers', notiItem.id), { scribeDetails: updatedDetails });
+              }
+          }
+          setNotifications(prev => prev.filter(n => !(n.id === notiItem.id && n.type === notiItem.type && n.itemIndex === notiItem.itemIndex)));
+      } catch(e) { console.error(e); }
   };
 
+  const handleResolveAlert = async (id) => { if(!currentUser?.companyCode) return; try { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'system', 'alerts', id)); } catch(e) {} };
+  const handleBroadcast = async (targetId, isActive) => { if (!currentUser?.companyCode) return; try { const broadcastRef = doc(db, 'artifacts', appId, 'public', 'system', 'broadcast_data', currentUser.companyCode); await setDoc(broadcastRef, { isActive: isActive, targetId: targetId, presenterId: currentUser.username, timestamp: serverTimestamp() }); } catch (e) { } };
+  const handleOverlayClose = (isGlobalClose) => { if (isGlobalClose) handleBroadcast(null, false); else setIncomingBroadcast(null); };
   const handleLogout = () => { setCurrentUser(null); localStorage.removeItem('crm-user-profile'); setView('login'); setActiveTab('clients'); setSearchTerm(''); setLoading(false); };
+  
   const handleLogin = async (username, password, companyCode, rememberMe) => {
     setLoading(true);
     try {
@@ -577,15 +384,12 @@ export default function App() {
       } else { alert("登入失敗"); setLoading(false); }
     } catch (e) { console.error(e); alert("登入錯誤"); setLoading(false); }
   };
+
   const handleRegister = async (username, password, name, role, adminCode, companyCode) => {
     if (!username || !password || !name || !companyCode) return alert("請填寫完整");
     setLoading(true);
     let finalRole = role;
-    if (role === 'admin') {
-        if (adminCode === SUPER_ADMIN_CODE) finalRole = 'super_admin';
-        else if (adminCode === ADMIN_CODE) finalRole = 'admin';
-        else { setLoading(false); alert("註冊碼錯誤"); return false; }
-    }
+    if (role === 'admin') { if (adminCode === SUPER_ADMIN_CODE) finalRole = 'super_admin'; else if (adminCode === ADMIN_CODE) finalRole = 'admin'; else { setLoading(false); alert("註冊碼錯誤"); return false; } }
     try {
       const usersRef = collection(db, 'artifacts', appId, 'public', 'data', 'app_users');
       const q = query(usersRef, where("username", "==", username)); 
@@ -599,21 +403,11 @@ export default function App() {
   const handleAddCustomer = async (formData) => {
     if (!currentUser) return;
     try {
-      setView('list'); 
-      setActiveTab('clients');
+      setView('list'); setActiveTab('clients');
       const initialLastContact = formData.createdAt || new Date().toISOString().split('T')[0];
-      const newCustomer = { 
-        ...formData, 
-        createdAt: formData.createdAt ? new Date(formData.createdAt) : new Date(), 
-        notes: [], 
-        lastContact: initialLastContact, 
-        owner: currentUser.username || "unknown_user", 
-        ownerName: currentUser.name || currentUser.username || "未知業務", 
-        companyCode: currentUser.companyCode || "unknown_company"
-      };
+      const newCustomer = { ...formData, createdAt: formData.createdAt ? new Date(formData.createdAt) : new Date(), notes: [], lastContact: initialLastContact, owner: currentUser.username || "unknown_user", ownerName: currentUser.name || "未知業務", companyCode: currentUser.companyCode || "unknown_company" };
       Object.keys(newCustomer).forEach(key => { if (newCustomer[key] === undefined) delete newCustomer[key]; });
       await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'customers'), newCustomer);
-      
       if ((newCustomer.category === '賣方' || newCustomer.category === '出租' || newCustomer.category === '出租方') && newCustomer.caseName && newCustomer.assignedRegion) {
           const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'company_settings', currentUser.companyCode);
           const docSnap = await getDoc(docRef);
@@ -623,295 +417,105 @@ export default function App() {
               const list = currentProjects[region] || [];
               if (!list.includes(newCustomer.caseName)) {
                   const updatedProjects = { ...currentProjects, [region]: [...list, newCustomer.caseName] };
-                  setCompanyProjects(updatedProjects); 
-                  await updateDoc(docRef, { projects: updatedProjects }); 
+                  setCompanyProjects(updatedProjects); await updateDoc(docRef, { projects: updatedProjects }); 
               }
           }
       }
-
-      try {
-          const today = new Date().getDay(); 
-          const quotes = (typeof DAILY_QUOTES !== 'undefined' && Array.isArray(DAILY_QUOTES)) ? DAILY_QUOTES : ["加油！"];
-          alert(`新增成功！\n\n💡 ${quotes[today] || quotes[0]}`);
-      } catch (e) { alert("新增成功！"); }
-    } catch (err) { console.error("Add Customer Error:", err); alert(`新增失敗：${err.message}`); }
+      try { const today = new Date().getDay(); const quotes = (typeof DAILY_QUOTES !== 'undefined' && Array.isArray(DAILY_QUOTES)) ? DAILY_QUOTES : ["加油！"]; alert(`新增成功！\n\n💡 ${quotes[today] || quotes[0]}`); } catch (e) { alert("新增成功！"); }
+    } catch (err) { alert(`新增失敗：${err.message}`); }
   };
 
-  const handleBatchImport = async (importedData) => {
-      if (!currentUser) return;
-      setLoading(true);
-      try {
-          const batchPromises = importedData.map(data => {
-              const safeDate = (val) => { if (!val) return new Date(); let d = new Date(val); if (isNaN(d.getTime()) || d.getFullYear() > 3000 || d.getFullYear() < 1900) return new Date(); return d; };
-              const cleanData = { ...data, owner: currentUser.username, ownerName: currentUser.name, companyCode: currentUser.companyCode, createdAt: safeDate(data.createdAt), lastContact: typeof data.lastContact === 'string' ? data.lastContact : safeDate(data.createdAt).toISOString().split('T')[0], notes: [], value: data.value ? Number(String(data.value).replace(/,/g, '')) : 0 };
-              Object.keys(cleanData).forEach(key => { if (cleanData[key] === undefined) delete cleanData[key]; });
-              return addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'customers'), cleanData);
-          });
-          await Promise.all(batchPromises);
-          alert(`成功匯入 ${importedData.length} 筆資料`);
-      } catch (error) { console.error(error); alert("匯入失敗"); } finally { setLoading(false); }
-  };
+  const handleBatchImport = async (importedData) => { if (!currentUser) return; setLoading(true); try { const batchPromises = importedData.map(data => { const safeDate = (val) => { if (!val) return new Date(); let d = new Date(val); if (isNaN(d.getTime()) || d.getFullYear() > 3000 || d.getFullYear() < 1900) return new Date(); return d; }; const cleanData = { ...data, owner: currentUser.username, ownerName: currentUser.name, companyCode: currentUser.companyCode, createdAt: safeDate(data.createdAt), lastContact: typeof data.lastContact === 'string' ? data.lastContact : safeDate(data.createdAt).toISOString().split('T')[0], notes: [], value: data.value ? Number(String(data.value).replace(/,/g, '')) : 0 }; Object.keys(cleanData).forEach(key => { if (cleanData[key] === undefined) delete cleanData[key]; }); return addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'customers'), cleanData); }); await Promise.all(batchPromises); alert(`成功匯入 ${importedData.length} 筆資料`); } catch (error) { alert("匯入失敗"); } finally { setLoading(false); } };
+  const handleBatchDelete = async (ids) => { if (!ids.length || !confirm(`刪除 ${ids.length} 筆？`)) return; setLoading(true); try { const batch = writeBatch(db); ids.forEach(id => batch.delete(doc(db, 'artifacts', appId, 'public', 'data', 'customers', id))); await batch.commit(); alert("刪除成功"); } catch (e) { alert("刪除失敗"); } finally { setLoading(false); } };
 
-  const handleBatchDelete = async (ids) => {
-      if (!ids.length || !confirm(`刪除 ${ids.length} 筆？`)) return;
-      setLoading(true);
-      try { const batch = writeBatch(db); ids.forEach(id => batch.delete(doc(db, 'artifacts', appId, 'public', 'data', 'customers', id))); await batch.commit(); alert("刪除成功"); } catch (e) { alert("刪除失敗"); } finally { setLoading(false); }
-  };
-
-  // ★★★ 補回 handleCustomerClick 與 isAdmin ★★★
   const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'super_admin';
   const isSuperAdmin = currentUser?.role === 'super_admin';
 
-  const handleCustomerClick = (customer) => {
-      setSelectedCustomer(customer);
-      setView('detail');
-  };
-
+  const handleCustomerClick = (customer) => { setSelectedCustomer(customer); setView('detail'); };
   const handleEditCustomer = async (formData) => {
     if (selectedCustomer.owner !== currentUser.username && !isSuperAdmin) return alert("無權限");
     try {
-      const { id, ...rest } = formData;
-      const updateData = { ...rest };
+      const { id, ...rest } = formData; const updateData = { ...rest };
       if (updateData.createdAt) { const d = new Date(updateData.createdAt); if (!isNaN(d.getTime())) { updateData.createdAt = d; updateData.lastContact = d.toISOString().split('T')[0]; } else delete updateData.createdAt; }
       Object.keys(updateData).forEach(key => updateData[key] === undefined && delete updateData[key]);
       await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'customers', selectedCustomer.id), updateData);
-      
-      setSelectedCustomer({ ...selectedCustomer, ...updateData });
-      
-      setView('detail');
+      setSelectedCustomer({ ...selectedCustomer, ...updateData }); setView('detail');
     } catch (e) { alert("儲存失敗"); }
   };
-  const handleDeleteCustomer = async () => {
-    if (selectedCustomer.owner !== currentUser.username && !isSuperAdmin) return alert("無權限");
-    try { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'customers', selectedCustomer.id)); setSelectedCustomer(null); setView('list'); } catch(e){}
-  };
+  const handleDeleteCustomer = async () => { if (selectedCustomer.owner !== currentUser.username && !isSuperAdmin) return alert("無權限"); try { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'customers', selectedCustomer.id)); setSelectedCustomer(null); setView('list'); } catch(e){} };
   const handleAddNote = async (id, content) => { try { const today = new Date().toISOString().split('T')[0]; await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'customers', id), { notes: arrayUnion({id:Date.now(), date:today, content, author:currentUser.name}), lastContact: today }); } catch(e){} };
   const handleDeleteNote = async (id, note) => { try { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'customers', id), { notes: arrayRemove(note) }); } catch(e){} };
   
   const saveSettingsToFirestore = async (np, na) => { if(!currentUser?.companyCode)return; const p={}; if(np)p.projects=np; if(na)p.projectAds=na; try{ await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'company_settings', currentUser.companyCode), p, {merge:true}); }catch(e){} };
-  
   const handleSaveAnnouncement = async (t) => { if(!currentUser?.companyCode)return; try{ await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'company_settings', currentUser.companyCode), {announcement:t}, {merge:true}); alert("更新成功"); }catch(e){} };
-  
-  const saveAppSettings = async (s) => { if(!currentUser?.companyCode)return; try{ await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'company_settings', currentUser.companyCode), s, {merge:true}); }catch(e){} };
-
-  const handleAddOption = (type, val) => { 
-      if (Array.isArray(val) && (type === 'scriveners' || type === 'adWalls')) {
-          setAppSettings({...appSettings, [type]: val});
-          if (type === 'adWalls') setAdWalls(val);
-          saveAppSettings({[type]: val});
-          return;
-      }
-      if(!val || (appSettings[type] && appSettings[type].includes(val))) return; 
-      const u = [...(appSettings[type] || []), val]; 
-      setAppSettings({...appSettings, [type]: u}); 
-      saveAppSettings({[type]: u}); 
-  };
-
-  const handleDeleteOption = (type, opt) => { 
-      const u = (appSettings[type] || []).filter(i => i !== opt); 
-      setAppSettings({...appSettings, [type]: u}); 
-      saveAppSettings({[type]: u}); 
-  };
-
-  const handleReorderOption = (type, f, t) => { 
-      const l = [...(appSettings[type] || [])]; 
-      const [r] = l.splice(f, 1); 
-      l.splice(t, 0, r); 
-      setAppSettings({...appSettings, [type]: l}); 
-      saveAppSettings({[type]: l}); 
-  };
-
-  const handleUpdateProjects = async (newProjects) => {
-      setCompanyProjects(newProjects);
-      await saveSettingsToFirestore(newProjects, null);
-  };
-
+  const handleAddOption = (type, val) => { if (Array.isArray(val) && (type === 'scriveners' || type === 'adWalls')) { setAppSettings({...appSettings, [type]: val}); if (type === 'adWalls') setAdWalls(val); return; } if(!val || (appSettings[type] && appSettings[type].includes(val))) return; const u = [...(appSettings[type] || []), val]; setAppSettings({...appSettings, [type]: u}); };
+  const handleDeleteOption = (type, opt) => { const u = (appSettings[type] || []).filter(i => i !== opt); setAppSettings({...appSettings, [type]: u}); };
+  const handleReorderOption = (type, f, t) => { const l = [...(appSettings[type] || [])]; const [r] = l.splice(f, 1); l.splice(t, 0, r); setAppSettings({...appSettings, [type]: l}); };
+  const handleUpdateProjects = async (newProjects) => { setCompanyProjects(newProjects); await saveSettingsToFirestore(newProjects, null); };
   const handleAddRegion = () => { if(!newRegionName.trim()||companyProjects[newRegionName])return; const u={...companyProjects,[newRegionName]:[]}; setCompanyProjects(u); saveSettingsToFirestore(u,null); setNewRegionName(''); };
   const handleAddProject = (r) => { const n=newProjectNames[r]; if(!n||!n.trim()||companyProjects[r].includes(n))return; const u={...companyProjects,[r]:[...(companyProjects[r]||[]),n]}; setCompanyProjects(u); saveSettingsToFirestore(u,null); setNewProjectNames({...newProjectNames,[r]:''}); };
   const handleDeleteRegion = (r) => setPendingDelete({type:'region',region:r});
   const handleDeleteProject = (r,i) => setPendingDelete({type:'project',region:r,item:i});
   const toggleUserStatus = async (u) => { if(currentUser?.role!=='super_admin')return; try{ await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'app_users', u.id), {status:u.status==='suspended'?'active':'suspended'}); }catch(e){} };
   const handleDeleteUser = (u) => setPendingDelete({type:'user',item:u});
-
-  const handleSaveAd = async () => {
-      if (!adForm.name.trim() || !adManageProject || !currentUser?.companyCode) return;
-      
-      const currentAds = projectAds[adManageProject] || [];
-      const safeCurrentAds = Array.isArray(currentAds) ? currentAds : [];
-      
-      const normalizedAds = safeCurrentAds.map(a => 
-          typeof a === 'string' ? { id: Date.now() + Math.random(), name: a, startDate: '', endDate: '' } : a
-      );
-
-      let updatedList;
-      if (isEditingAd) {
-          updatedList = normalizedAds.map(a => a.id === adForm.id ? adForm : a);
-      } else {
-          updatedList = [...normalizedAds, { ...adForm, id: Date.now() }];
-      }
-
-      const newProjectAds = { ...projectAds, [adManageProject]: updatedList };
-      setProjectAds(newProjectAds);
-      
-      try {
-          const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'company_settings', currentUser.companyCode);
-          await updateDoc(docRef, {
-              [`projectAds.${adManageProject}`]: updatedList
-          });
-      } catch (e) {
-          console.error("Save Ad Error:", e);
-          alert("儲存失敗，請重試");
-      }
-      
-      setAdForm({ id: '', name: '', startDate: '', endDate: '' });
-      setIsEditingAd(false);
-  };
-
+  const handleSaveAd = async () => { if (!adForm.name.trim() || !adManageProject || !currentUser?.companyCode) return; const currentAds = projectAds[adManageProject] || []; const safeCurrentAds = Array.isArray(currentAds) ? currentAds : []; const normalizedAds = safeCurrentAds.map(a => typeof a === 'string' ? { id: Date.now() + Math.random(), name: a, startDate: '', endDate: '' } : a ); let updatedList; if (isEditingAd) { updatedList = normalizedAds.map(a => a.id === adForm.id ? adForm : a); } else { updatedList = [...normalizedAds, { ...adForm, id: Date.now() }]; } const newProjectAds = { ...projectAds, [adManageProject]: updatedList }; setProjectAds(newProjectAds); try { const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'company_settings', currentUser.companyCode); await updateDoc(docRef, { [`projectAds.${adManageProject}`]: updatedList }); } catch (e) { } setAdForm({ id: '', name: '', startDate: '', endDate: '' }); setIsEditingAd(false); };
   const handleEditAdInit = (a) => { setAdForm(typeof a==='string'?{id:a,name:a,startDate:'',endDate:''}:a); setIsEditingAd(true); };
   const triggerDeleteAd = (i) => setPendingDelete({type:'ad',region:adManageProject,item:i});
   const handleEditAdFromDashboard = (a,p) => { setAdManageProject(p); setAdForm(typeof a==='string'?{id:a,name:a,startDate:'',endDate:''}:a); setIsEditingAd(true); };
   const handleDeleteAdFromDashboard = (a,p) => setPendingDelete({type:'ad',region:p,item:a});
-  const executeDelete = async () => { 
-      if(!pendingDelete) return; 
-      const {type,region,item} = pendingDelete; 
-      
-      if(type==='user'){
-          try{await deleteDoc(doc(db,'artifacts',appId,'public','data','app_users',item.id))}catch(e){} 
-      } else if(type==='ad'){ 
-          let c = projectAds[region] || [];
-          const u = c.filter(a => (a.id ? a.id !== item.id : a !== item));
-          
-          const newProjectAds = { ...projectAds, [region]: u };
-          setProjectAds(newProjectAds); 
-          
-          if (currentUser?.companyCode) {
-              const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'company_settings', currentUser.companyCode);
-              await updateDoc(docRef, { [`projectAds.${region}`]: u }); 
-          }
-      } else { 
-          let u={...companyProjects}; 
-          if(type==='region') delete u[region]; 
-          else u[region]=u[region].filter(p=>p!==item); 
-          setCompanyProjects(u); 
-          saveSettingsToFirestore(u,null); 
-      } 
-      setPendingDelete(null); 
-  };
-
+  const executeDelete = async () => { if(!pendingDelete) return; const {type,region,item} = pendingDelete; if(type==='user'){ try{await deleteDoc(doc(db,'artifacts',appId,'public','data','app_users',item.id))}catch(e){} } else if(type==='ad'){ let c = projectAds[region] || []; const u = c.filter(a => (a.id ? a.id !== item.id : a !== item)); const newProjectAds = { ...projectAds, [region]: u }; setProjectAds(newProjectAds); if (currentUser?.companyCode) { const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'company_settings', currentUser.companyCode); await updateDoc(docRef, { [`projectAds.${region}`]: u }); } } else { let u={...companyProjects}; if(type==='region') delete u[region]; else u[region]=u[region].filter(p=>p!==item); setCompanyProjects(u); saveSettingsToFirestore(u,null); } setPendingDelete(null); };
   const handleSaveDeal = async (dealData) => { try{ const id=dealData.id||Date.now().toString(); let ag=dealData.agentName||(dealData.distributions?.[0]?.agentName)||(allUsers.find(u=>u.username===dealData.agent)?.name)||dealData.agent||currentUser?.name||"未知"; const n={...dealData,id,createdAt:dealData.createdAt||new Date().toISOString(),companyCode:currentUser.companyCode,agentName:ag}; await setDoc(doc(db,'artifacts',appId,'public','data','deals',id),n,{merge:true}); alert("已儲存"); }catch(e){alert("失敗");} };
   const handleDeleteDeal = async (id) => { if(!confirm("刪除？"))return; try{await deleteDoc(doc(db,'artifacts',appId,'public','data','deals',id))}catch(e){} };
-
-  const checkDateMatch = (dateStr, timeFrame, targetYear, targetMonth, targetWeekStr) => {
-      if (!dateStr) return false;
-
-      let date;
-      const strVal = String(dateStr).trim();
-      
-      const rocMatch = strVal.match(/^(\d{2,3})[./-](\d{1,2})[./-](\d{1,2})/);
-      if (rocMatch) {
-          let y = parseInt(rocMatch[1]);
-          const m = parseInt(rocMatch[2]);
-          const d = parseInt(rocMatch[3]);
-          if (y < 1000) y += 1911; 
-          date = new Date(y, m - 1, d);
-      } else {
-          date = new Date(dateStr);
-      }
-
-      if (isNaN(date.getTime())) return false;
-
-      if (timeFrame === 'all') return true;
-      if (timeFrame === 'year') return date.getFullYear() === targetYear;
-      if (timeFrame === 'month') return date.getFullYear() === targetYear && (date.getMonth() + 1) === targetMonth;
-      if (timeFrame === 'week') {
-          if (!targetWeekStr) return false;
-          const [wYear, wWeek] = targetWeekStr.split('-W').map(Number);
-          if (!wYear || !wWeek) return false;
-
-          const simpleDate = new Date(wYear, 0, 1 + (wWeek - 1) * 7);
-          const dow = simpleDate.getDay();
-          const ISOweekStart = simpleDate;
-          if (dow <= 4)
-              ISOweekStart.setDate(simpleDate.getDate() - simpleDate.getDay() + 1);
-          else
-              ISOweekStart.setDate(simpleDate.getDate() + 8 - simpleDate.getDay());
-          
-          const startDate = new Date(ISOweekStart);
-          startDate.setHours(0,0,0,0);
-          
-          const endDate = new Date(startDate);
-          endDate.setDate(startDate.getDate() + 7);
-
-          return date >= startDate && date < endDate;
-      }
-      return false;
+  
+  // Profile Logic
+  const openProfile = () => {
+      const me = allUsers.find(u => u.username === currentUser.username) || currentUser;
+      setMyProfileData(me);
+      setShowProfileModal(true);
   };
 
-  const agentStats = useMemo(() => { 
-      if (!Array.isArray(allUsers) || !Array.isArray(deals)) return [];
-      const map = {}; 
-      allUsers.forEach(u => { if (u && u.name) { map[u.name] = { name: u.name, total: 0, commission: 0 }; } });
-      
-      deals.forEach(d => { 
-         const dateRef = d.dealDate || d.signDate || d.date; 
-         if (checkDateMatch(dateRef, dashTimeFrame, statYear, statMonth, statWeek)) {
-             if (Array.isArray(d.devAgents)) { d.devAgents.forEach(ag => { if (ag && ag.user && map[ag.user]) { const amt = parseFloat(String(ag.amount || 0).replace(/,/g, '')) || 0; map[ag.user].commission += amt; map[ag.user].total += 1; } }); }
-             if (Array.isArray(d.salesAgents)) { d.salesAgents.forEach(ag => { if (ag && ag.user && map[ag.user]) { const amt = parseFloat(String(ag.amount || 0).replace(/,/g, '')) || 0; map[ag.user].commission += amt; map[ag.user].total += 1; } }); }
-         }
-      });
-      return Object.values(map).sort((a,b) => b.commission - a.commission).filter(a => a.commission > 0); 
-  }, [deals, dashTimeFrame, statYear, statMonth, statWeek, allUsers]);
-
-  const dashboardStats = useMemo(() => { 
-      let totalRevenue = 0;
-      let wonCount = 0;
-      let newCases = 0;
-      let newBuyers = 0;
-
-      if (Array.isArray(deals)) {
-          deals.forEach(d => { 
-              const dateRef = d.dealDate || d.signDate || d.date;
-              if (checkDateMatch(dateRef, dashTimeFrame, statYear, statMonth, statWeek)) { 
-                  const sub = parseFloat(String(d.subtotal || 0).replace(/,/g, '')) || 0; 
-                  totalRevenue += sub; 
-                  wonCount++; 
-              } 
-          }); 
+  const handleProfileImage = (e) => {
+      const file = e.target.files[0];
+      if(file) {
+          if (file.size > 800 * 1024) return alert("圖片太大 (限 800KB)");
+          const reader = new FileReader();
+          reader.onloadend = () => setMyProfileData({...myProfileData, photoUrl: reader.result});
+          reader.readAsDataURL(file);
       }
+  };
 
-      if (Array.isArray(customers)) {
-          customers.forEach(c => {
-              let dateRef = c.createdAt;
-              if (dateRef && typeof dateRef === 'object' && dateRef.seconds) {
-                  dateRef = new Date(dateRef.seconds * 1000);
-              }
-              
-              if (checkDateMatch(dateRef, dashTimeFrame, statYear, statMonth, statWeek)) {
-                  if (['賣方', '出租', '出租方'].includes(c.category)) {
-                      newCases++;
-                  } else {
-                      newBuyers++;
-                  }
-              }
-          });
+  const handleProfileSave = async (e) => {
+      e.preventDefault();
+      try {
+          if (myProfileData.id) {
+              await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'app_users', myProfileData.id), myProfileData);
+          }
+          setShowProfileModal(false);
+          alert("個人資料已更新");
+      } catch (error) {
+          console.error("Profile update failed:", error);
+          alert("更新失敗");
       }
+  };
 
-      return { totalRevenue, counts: { won: wonCount, cases: newCases, buyers: newBuyers } }; 
-  }, [customers, deals, dashTimeFrame, statYear, statMonth, statWeek]);
-
+  // Stats Logic
+  const agentStats = useMemo(() => { if (!Array.isArray(allUsers) || !Array.isArray(deals)) return []; const map = {}; allUsers.forEach(u => { if (u && u.name) { map[u.name] = { name: u.name, total: 0, commission: 0 }; } }); deals.forEach(d => { const dateRef = d.dealDate || d.signDate || d.date; if (checkDateMatch(dateRef, dashTimeFrame, statYear, statMonth, statWeek)) { if (Array.isArray(d.devAgents)) { d.devAgents.forEach(ag => { if (ag && ag.user && map[ag.user]) { const amt = parseFloat(String(ag.amount || 0).replace(/,/g, '')) || 0; map[ag.user].commission += amt; map[ag.user].total += 1; } }); } if (Array.isArray(d.salesAgents)) { d.salesAgents.forEach(ag => { if (ag && ag.user && map[ag.user]) { const amt = parseFloat(String(ag.amount || 0).replace(/,/g, '')) || 0; map[ag.user].commission += amt; map[ag.user].total += 1; } }); } } }); return Object.values(map).sort((a,b) => b.commission - a.commission).filter(a => a.commission > 0); }, [deals, dashTimeFrame, statYear, statMonth, statWeek, allUsers]);
+  const dashboardStats = useMemo(() => { let totalRevenue = 0; let wonCount = 0; let newCases = 0; let newBuyers = 0; if (Array.isArray(deals)) { deals.forEach(d => { const dateRef = d.dealDate || d.signDate || d.date; if (checkDateMatch(dateRef, dashTimeFrame, statYear, statMonth, statWeek)) { const sub = parseFloat(String(d.subtotal || 0).replace(/,/g, '')) || 0; totalRevenue += sub; wonCount++; } }); } if (Array.isArray(customers)) { customers.forEach(c => { let dateRef = c.createdAt; if (dateRef && typeof dateRef === 'object' && dateRef.seconds) { dateRef = new Date(dateRef.seconds * 1000); } if (checkDateMatch(dateRef, dashTimeFrame, statYear, statMonth, statWeek)) { if (['賣方', '出租', '出租方'].includes(c.category)) { newCases++; } else { newBuyers++; } } }); } return { totalRevenue, counts: { won: wonCount, cases: newCases, buyers: newBuyers } }; }, [customers, deals, dashTimeFrame, statYear, statMonth, statWeek]);
   const handleExportExcel = () => { setIsExporting(true); setTimeout(()=>{ alert("匯出功能已觸發"); setIsExporting(false); setShowExportMenu(false); },1000); };
 
   if (loading) return <div className="min-h-screen flex items-center justify-center bg-gray-100 dark:bg-slate-950"><Loader2 className="w-8 h-8 animate-spin text-blue-600" /></div>;
   if (view === 'login') return <LoginScreen onLogin={handleLogin} onRegister={handleRegister} loading={loading} darkMode={darkMode} />;
+  
   if (view === 'add') return <CustomerForm customers={customers} onSubmit={handleAddCustomer} onCancel={() => setView('list')} appSettings={appSettings} companyProjects={companyProjects} projectAds={projectAds} darkMode={darkMode} allUsers={allUsers} currentUser={currentUser} />;
   if (view === 'edit' && selectedCustomer) return <CustomerForm customers={customers} onSubmit={handleEditCustomer} onCancel={() => setView('detail')} initialData={selectedCustomer} appSettings={appSettings} companyProjects={companyProjects} projectAds={projectAds} darkMode={darkMode} allUsers={allUsers} currentUser={currentUser} />;
-  if (view === 'detail' && selectedCustomer) return <CustomerDetail customer={selectedCustomer} allCustomers={customers} currentUser={currentUser} onEdit={() => setView('edit')} onDelete={handleDeleteCustomer} onAddNote={handleAddNote} onDeleteNote={handleDeleteNote} onBack={() => setView('list')} darkMode={darkMode} onQuickUpdate={handleQuickUpdate} />;
+  if (view === 'detail' && selectedCustomer) return <CustomerDetail customer={selectedCustomer} allCustomers={customers} currentUser={currentUser} onEdit={() => setView('edit')} onDelete={handleDeleteCustomer} onAddNote={handleAddNote} onDeleteNote={handleDeleteNote} onBack={() => setView('list')} darkMode={darkMode} onQuickUpdate={handleQuickUpdate} allUsers={allUsers} />;
 
   return (
     <div className={`min-h-screen w-full transition-colors duration-300 ${darkMode ? 'dark bg-slate-950 text-slate-100' : 'bg-gray-50 text-gray-800'} overflow-x-hidden`} style={{ colorScheme: darkMode ? 'dark' : 'light' }}>
       {incomingBroadcast && <BroadcastOverlay data={incomingBroadcast} isPresenter={myBroadcastStatus} onClose={handleOverlayClose} />}
       <NotificationModal notifications={notifications} onClose={() => setNotifications([])} onQuickUpdate={handleQuickUpdate} />
       {view === 'list' && <Marquee text={announcement} darkMode={darkMode} />}
+      
       {activeTab === 'clients' ? <ClientsView 
             companyProjects={companyProjects} 
             onUpdateProjects={handleUpdateProjects} 
@@ -937,7 +541,10 @@ export default function App() {
             onCustomerClick={handleCustomerClick} 
             onImport={handleBatchImport} 
             onBatchDelete={handleBatchDelete} 
-            onBroadcast={handleBroadcast} /> : 
+            onBroadcast={handleBroadcast}
+            onOpenProfile={openProfile} 
+            onOpenSettings={() => setDashboardView('settings')}
+            /> : 
         <DashboardView 
             saveSettings={saveSettingsToFirestore}
             customers={customers}
@@ -946,10 +553,12 @@ export default function App() {
             systemAlerts={systemAlerts}
             onResolveAlert={handleResolveAlert}
             statWeek={statWeek} 
-            setStatWeek={setStatWeek} 
+            setStatWeek={setStatWeek}
+            onOpenProfile={openProfile}
+            onOpenSettings={() => setDashboardView('settings')}
         />
       }
-      {/* ... (Bottom Nav & Modals 保持不變) ... */}
+
       <div className={`fixed bottom-0 w-full border-t flex justify-around items-center py-2 z-40 shadow-lg ${darkMode ? 'bg-slate-950 border-slate-800' : 'bg-white border-gray-200'}`}>
         <button onClick={() => setActiveTab('clients')} className={`flex flex-col items-center p-2 w-24 active:scale-95 transition-transform ${activeTab === 'clients' ? 'text-blue-500 font-bold' : 'text-gray-400'}`}><List className="w-6 h-6"/><span className="text-[10px] mt-1">列表</span></button>
         {isAdmin && (
@@ -960,8 +569,42 @@ export default function App() {
             </button>
         )}
       </div>
+
       {pendingDelete && <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[70] flex items-center justify-center p-4"><div className={`w-full max-w-sm p-6 rounded-2xl shadow-2xl transform transition-all ${darkMode ? 'bg-slate-900 text-white' : 'bg-white'}`}><div className="flex items-center gap-3 mb-4 text-red-500"><div className="p-2 bg-red-100 dark:bg-red-900/30 rounded-full"><div className="w-6 h-6 text-red-600">⚠️</div></div><h3 className="text-lg font-bold">確認刪除</h3></div><p className="text-sm opacity-80 mb-6 leading-relaxed">確定要刪除嗎？<br/><span className="text-red-500 font-bold text-xs mt-1 block font-bold">此操作無法復原。</span></p><div className="flex gap-3"><button onClick={() => setPendingDelete(null)} className="flex-1 py-3 rounded-xl font-bold bg-gray-100 dark:bg-slate-800 text-gray-600 dark:text-slate-300 hover:bg-gray-200 transition-colors">取消</button><button onClick={executeDelete} className="flex-1 py-3 rounded-xl font-bold bg-red-600 text-white hover:bg-red-700 shadow-lg shadow-red-600/30 transition-all active:scale-95">確認刪除</button></div></div></div>}
+      
       {adManageProject && <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4"><div className={`w-full max-w-md p-6 rounded-2xl shadow-2xl transform transition-all max-h-[85vh] overflow-y-auto ${darkMode ? 'bg-slate-900 text-white' : 'bg-white'}`}><div className="flex justify-between items-center mb-4 border-b dark:border-slate-800 pb-3"><h3 className="text-lg font-bold flex items-center gap-2">管理廣告: {adManageProject}</h3><button onClick={() => { setAdManageProject(null); setIsEditingAd(false); }} className="p-1 hover:bg-gray-100 dark:hover:bg-slate-800 rounded-full"><X/></button></div><div className="space-y-3 mb-6 bg-gray-50 dark:bg-slate-800/50 p-4 rounded-xl border border-gray-100 dark:border-slate-800"><input value={adForm.name} onChange={(e) => setAdForm({...adForm, name: e.target.value})} className={`w-full px-3 py-2 rounded-lg border text-sm outline-none notranslate ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300 text-gray-900'}`} placeholder="廣告名稱 (如: 591, FB)" autoComplete="off" /><div className="flex gap-2 items-center"><span className="text-xs text-gray-400">起</span><input type="date" value={adForm.startDate} onChange={(e) => setAdForm({...adForm, startDate: e.target.value})} className={`flex-1 px-3 py-2 rounded-lg border text-sm outline-none transition-colors ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300 text-gray-900'}`} /><span className="text-xs text-gray-400">迄</span><input type="date" value={adForm.endDate} onChange={(e) => setAdForm({...adForm, endDate: e.target.value})} className={`flex-1 px-3 py-2 rounded-lg border text-sm outline-none transition-colors ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300 text-gray-900'}`} /></div><button onClick={onSaveAd} className="w-full bg-blue-600 text-white py-2 rounded-lg text-sm font-bold active:scale-95 transition-all shadow-md shadow-blue-600/20">{isEditingAd ? '儲存變更' : '新增廣告'}</button></div><div className="space-y-2">{(projectAds[adManageProject] || []).map((ad, idx) => { const adObj = typeof ad === 'string' ? { id: idx, name: ad, endDate: '' } : ad; return (<div key={adObj.id || idx} className="flex justify-between items-center p-3 rounded-lg border dark:border-slate-800 text-sm hover:border-blue-300 transition-colors"><div><span className="font-bold block">{adObj.name}</span></div><div className="flex gap-1"><button onClick={() => handleEditAdInit(ad)} className="p-2 text-blue-500 hover:bg-blue-50 dark:hover:bg-slate-700 rounded-full">✏️</button><button onClick={() => triggerDeleteAd(adObj)} className="p-2 text-red-500 hover:bg-red-50 dark:hover:bg-slate-700 rounded-full">🗑️</button></div></div>); })}</div></div></div>}
+
+      {/* ★★★ 個人資料編輯 Modal (前台) ★★★ */}
+      {showProfileModal && (
+          <div className="fixed inset-0 z-[90] bg-black/60 flex items-center justify-center p-4 backdrop-blur-md">
+              <div className="bg-white dark:bg-slate-900 w-full max-w-md rounded-2xl shadow-xl overflow-hidden animate-in zoom-in-95 duration-200">
+                  <div className="p-4 border-b dark:border-slate-800 bg-gray-50 dark:bg-slate-800 flex justify-between items-center">
+                      <h3 className="font-bold text-lg flex items-center gap-2 dark:text-white"><UserCircle className="w-5 h-5"/> 個人資料設定</h3>
+                      <button onClick={() => setShowProfileModal(false)}><X className="w-5 h-5 text-gray-500"/></button>
+                  </div>
+                  <form onSubmit={handleProfileSave} className="p-6 space-y-4">
+                      <div className="flex justify-center mb-4">
+                          <div className="w-24 h-24 rounded-full bg-gray-100 dark:bg-slate-800 border-4 border-white dark:border-slate-700 shadow-lg flex items-center justify-center relative overflow-hidden group cursor-pointer">
+                              {myProfileData.photoUrl ? <img src={myProfileData.photoUrl} className="w-full h-full object-cover"/> : <div className="text-gray-400 text-xs text-center px-2">上傳照片</div>}
+                              <input type="file" accept="image/*" onChange={handleProfileImage} className="absolute inset-0 opacity-0 cursor-pointer" />
+                              <div className="absolute inset-0 bg-black/50 flex items-center justify-center text-white text-xs opacity-0 group-hover:opacity-100 transition-opacity font-bold">更換照片</div>
+                          </div>
+                      </div>
+                      
+                      <div className="grid grid-cols-2 gap-4">
+                          <div><label className="text-xs font-bold text-gray-400 mb-1 block">姓名 (不可改)</label><input disabled value={myProfileData.name || ''} className="w-full p-2 border rounded bg-gray-100 dark:bg-slate-800 dark:border-slate-700 cursor-not-allowed"/></div>
+                          <div><label className="text-xs font-bold text-gray-400 mb-1 block">權限</label><input disabled value={myProfileData.role === 'admin' ? '管理員' : '一般業務'} className="w-full p-2 border rounded bg-gray-100 dark:bg-slate-800 dark:border-slate-700 cursor-not-allowed"/></div>
+                      </div>
+
+                      <div><label className="text-xs font-bold text-gray-500 dark:text-gray-400 mb-1 block">聯絡電話 (顯示於傳單)</label><input required value={myProfileData.phone || ''} onChange={e=>setMyProfileData({...myProfileData, phone: e.target.value})} className="w-full p-2 border rounded dark:bg-slate-900 dark:border-slate-600 dark:text-white" placeholder="09xx-xxx-xxx"/></div>
+                      <div><label className="text-xs font-bold text-gray-500 dark:text-gray-400 mb-1 block">LINE ID</label><input value={myProfileData.lineId || ''} onChange={e=>setMyProfileData({...myProfileData, lineId: e.target.value})} className="w-full p-2 border rounded dark:bg-slate-900 dark:border-slate-600 dark:text-white"/></div>
+                      <div><label className="text-xs font-bold text-gray-500 dark:text-gray-400 mb-1 block">證照號碼</label><input value={myProfileData.licenseId || ''} onChange={e=>setMyProfileData({...myProfileData, licenseId: e.target.value})} className="w-full p-2 border rounded dark:bg-slate-900 dark:border-slate-600 dark:text-white"/></div>
+
+                      <button type="submit" className="w-full py-3 bg-blue-600 text-white rounded-xl font-bold mt-4 hover:bg-blue-700 shadow-lg transition-transform active:scale-95">儲存變更</button>
+                  </form>
+              </div>
+          </div>
+      )}
     </div>
   );
 }

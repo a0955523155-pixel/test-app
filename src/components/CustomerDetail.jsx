@@ -1,68 +1,211 @@
 import React, { useState, useMemo } from 'react';
 import { 
-  X, User, Phone, MapPin, Building2, Calendar, FileText, Trash2, Edit, Plus, ExternalLink, 
-  MessageCircle, StickyNote, CheckCircle, Clock, Home, DollarSign, Target, Warehouse, Briefcase
+  X, Phone, MapPin, Trash2, Edit, Printer, 
+  StickyNote, Briefcase, CheckCircle, Plus, Target
 } from 'lucide-react';
 import { STATUS_CONFIG } from '../config/constants';
-import { formatDateString } from '../utils/helpers';
 
 const StatusBadge = ({ status }) => {
-    const labelMap = { 'new': '新案件/客戶', 'contacting': '洽談/接洽', 'commissioned': '已委託', 'offer': '已收斡', 'closed': '已成交', 'lost': '已無效' };
+    const labelMap = { 'new': '新案件', 'contacting': '洽談中', 'commissioned': '已委託', 'offer': '已收斡', 'closed': '已成交', 'lost': '已無效' };
     const label = labelMap[status] || (STATUS_CONFIG[status] || STATUS_CONFIG['new']).label;
     const config = STATUS_CONFIG[status] || STATUS_CONFIG['new'];
     return <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${config.color}`}>{label}</span>;
 };
 
-const CustomerDetail = ({ customer, allCustomers = [], currentUser, onEdit, onDelete, onAddNote, onDeleteNote, onBack, darkMode, onQuickUpdate }) => {
+const CustomerDetail = ({ customer, allCustomers = [], currentUser, onEdit, onDelete, onAddNote, onDeleteNote, onBack, darkMode, allUsers = [] }) => {
     const [noteContent, setNoteContent] = useState('');
     const [activeTab, setActiveTab] = useState('info'); 
 
     const isSeller = ['賣方', '出租', '出租方'].includes(customer.category);
-    const isRental = customer.category.includes('出租');
-    
-    // 是否為管理員 (權限判斷用)
+    const isRental = customer.category && customer.category.includes('出租');
     const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'super_admin';
 
-    const matchedObjects = useMemo(() => {
-        const safeFloat = (v) => {
-            if (!v) return 0;
-            const num = parseFloat(String(v).replace(/,/g, ''));
-            return isNaN(num) ? 0 : num;
-        };
+    const typeStr = customer.propertyType || customer.type || '';
+    const isLand = typeStr.includes('土地') || typeStr.includes('農地') || typeStr.includes('建地') || typeStr.includes('工業地');
 
+    // ★★★ 地址格式化 (隱藏門牌) ★★★
+    const formatAddress = (addr) => {
+        if (!addr) return '';
+        if (addr.includes('段') || addr.includes('地號')) return addr;
+        const parts = addr.split('號');
+        if (parts.length > 1) return parts[0] + '號 (詳細地址請洽專員)';
+        return addr;
+    };
+
+    // ★★★ 核心功能：列印 (質感綠色版) ★★★
+    const handlePrint = () => {
+        const win = window.open('', '', 'height=800,width=1200');
+        
+        let finalAgent = currentUser; 
+        if (customer.assignedAgent) {
+            const foundAgent = (allUsers || []).find(u => u.name === customer.assignedAgent);
+            if (foundAgent) {
+                finalAgent = foundAgent;
+            }
+        }
+
+        const agentName = finalAgent?.name || '專案經紀人';
+        const agentPhone = finalAgent?.phone || '09xx-xxx-xxx';
+        const agentLine = finalAgent?.lineId || ''; 
+        
+        const photoHtml = customer.photoUrl 
+            ? `<div class="photo-container"><img src="${customer.photoUrl}" alt="物件照片" /></div>`
+            : `<div class="photo-container no-photo"><span>暫無照片</span></div>`;
+
+        const displayCity = customer.city || '高雄市'; 
+        const displayArea = customer.reqRegion || customer.area || '';
+        const displayAddress = formatAddress(customer.landNo || customer.address || '');
+
+        let specsHtml = '';
+        if (isLand) {
+            specsHtml = `
+                <div class="spec-item"><div class="spec-label">總地坪</div><div class="spec-value">${customer.landPing || '-'} 坪</div></div>
+                <div class="spec-item"><div class="spec-label">使用分區</div><div class="spec-value">${customer.usageZone || '-'}</div></div>
+                <div class="spec-item"><div class="spec-label">單價</div><div class="spec-value">${customer.unitPrice ? customer.unitPrice + ' 萬/坪' : '-'}</div></div>
+                <div class="spec-item mt-3"><div class="spec-label">面寬</div><div class="spec-value">${customer.faceWidth || '-'} 米</div></div>
+                <div class="spec-item mt-3"><div class="spec-label">臨路</div><div class="spec-value">${customer.roadWidth || '-'} 米</div></div>
+                <div class="spec-item mt-3"><div class="spec-label">座向</div><div class="spec-value">${customer.direction || '-'}</div></div>
+            `;
+        } else {
+            specsHtml = `
+                <div class="spec-item"><div class="spec-label">建物坪數</div><div class="spec-value">${customer.buildPing || '-'} 坪</div></div>
+                <div class="spec-item"><div class="spec-label">土地坪數</div><div class="spec-value">${customer.landPing || '-'} 坪</div></div>
+                <div class="spec-item"><div class="spec-label">格局</div><div class="spec-value">${customer.room || '-'}房 ${customer.hall || '-'}廳 ${customer.bath || '-'}衛</div></div>
+                <div class="spec-item mt-3"><div class="spec-label">屋齡</div><div class="spec-value">${customer.age || '-'} 年</div></div>
+                <div class="spec-item mt-3"><div class="spec-label">樓層</div><div class="spec-value">${customer.floor || '-'} / ${customer.totalFloor || '-'} 樓</div></div>
+                <div class="spec-item mt-3"><div class="spec-label">型態</div><div class="spec-value">${customer.type || '電梯大樓'}</div></div>
+            `;
+        }
+
+        win.document.write('<html><head><title>' + (customer.caseName || customer.name) + ' - 物件介紹</title>');
+        win.document.write('<style>');
+        win.document.write(`
+            @page { size: A4 portrait; margin: 0; }
+            body { font-family: "Microsoft JhengHei", "Heiti TC", sans-serif; margin: 0; padding: 0; background: #fff; -webkit-print-color-adjust: exact; height: 100vh; overflow: hidden; }
+            
+            .page-container { width: 210mm; height: 296mm; padding: 12mm 15mm; box-sizing: border-box; margin: 0 auto; display: flex; flex-direction: column; }
+            
+            /* Header: 深墨綠色底 + 金色字 */
+            .header { border-bottom: 4px solid #14532d; padding-bottom: 10px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: flex-end; flex-shrink: 0; }
+            .header h1 { margin: 0; font-size: 28px; color: #14532d; letter-spacing: 2px; font-weight: 900; }
+            .header span { font-size: 14px; font-weight: bold; color: #15803d; letter-spacing: 1px; text-transform: uppercase; }
+
+            .photo-container { width: 100%; height: 450px; background: #f3f4f6; border-radius: 8px; overflow: hidden; border: 1px solid #d1d5db; margin-bottom: 20px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+            .photo-container img { width: 100%; height: 100%; object-fit: cover; }
+            .no-photo span { font-size: 20px; color: #9ca3af; font-weight: bold; }
+
+            .title-section { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 20px; flex-shrink: 0; }
+            .title-info { width: 65%; }
+            /* 狀態標籤: 質感金 */
+            .status-tag { display: inline-block; padding: 4px 10px; background: #fffbeb; color: #b45309; font-size: 12px; font-weight: bold; border-radius: 4px; margin-bottom: 6px; border: 1px solid #fcd34d; }
+            .case-name { font-size: 32px; font-weight: 900; color: #111827; margin: 0 0 6px 0; line-height: 1.2; }
+            .address { font-size: 16px; color: #4b5563; font-weight: bold; display: flex; align-items: center; }
+            
+            .price-info { width: 35%; text-align: right; }
+            .price-label { font-size: 14px; color: #6b7280; font-weight: bold; margin-bottom: 2px; }
+            /* 價格: 深綠色 */
+            .price-val { font-size: 52px; font-weight: 900; color: #15803d; font-family: Arial, sans-serif; letter-spacing: -1px; line-height: 1; }
+            .price-unit { font-size: 20px; color: #374151; margin-left: 2px; }
+
+            /* 規格表: 白底 + 灰框 (不要全綠) */
+            .specs-box { background: #ffffff; border: 2px solid #e5e7eb; border-radius: 8px; padding: 20px; margin-bottom: 20px; flex-shrink: 0; }
+            .specs-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; column-gap: 20px; row-gap: 0; }
+            .spec-item { border-right: 1px solid #d1d5db; padding-right: 10px; }
+            .spec-item:nth-child(3n) { border-right: none; }
+            .spec-label { font-size: 12px; color: #6b7280; margin-bottom: 4px; }
+            .spec-value { font-size: 18px; font-weight: bold; color: #1f2937; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .mt-3 { margin-top: 15px; }
+
+            /* 特色區塊: 極淡米色 (溫暖感) */
+            .highlight-box { background: #fdfbf7; border: 1px solid #e5e7eb; padding: 15px; border-radius: 6px; margin-top: auto; margin-bottom: 20px; flex-shrink: 0; }
+            .highlight-title { color: #b45309; font-weight: bold; margin-bottom: 5px; font-size: 14px; }
+            .highlight-text { font-size: 14px; color: #374151; line-height: 1.6; }
+
+            /* Footer: 深墨綠底 */
+            .footer { background: #14532d; color: white; padding: 15px 20px; border-radius: 10px; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; margin-top: auto; -webkit-print-color-adjust: exact; border-top: 4px solid #22c55e; }
+            .agent-info h3 { margin: 0 0 2px 0; font-size: 22px; font-weight: 900; letter-spacing: 1px; }
+            .agent-title { color: #86efac; font-size: 11px; font-weight: bold; letter-spacing: 1px; margin-bottom: 2px; }
+            .agent-slogan { color: #d1fae5; font-size: 11px; }
+            .contact-info { text-align: right; }
+            .phone { font-size: 26px; font-weight: 900; margin-bottom: 0px; display: flex; align-items: center; justify-content: flex-end; gap: 8px; color: #fff; }
+            .line-id { font-size: 14px; color: #ecfdf5; font-weight: bold; background: #166534; padding: 2px 8px; border-radius: 4px; display: inline-block; margin-top: 4px;}
+        `);
+        win.document.write('</style></head><body>');
+        
+        win.document.write(`
+            <div class="page-container">
+                <div class="header">
+                    <h1>綠芽團隊</h1>
+                    <span>GreenShootTeam</span>
+                </div>
+
+                ${photoHtml}
+
+                <div class="title-section">
+                    <div class="title-info">
+                        <span class="status-tag">${customer.status === 'closed' ? '已成交' : (isRental ? '出租' : '出售')}物件</span>
+                        <h2 class="case-name">${customer.caseName || customer.name}</h2>
+                        <div class="address">📍 ${displayCity} ${displayArea} ${displayAddress}</div>
+                    </div>
+                    <div class="price-info">
+                        <div class="price-label">${isRental ? '月租金' : '總價'}</div>
+                        <div class="price-val">${customer.totalPrice} <span class="price-unit">${isRental ? '元' : '萬'}</span></div>
+                    </div>
+                </div>
+
+                <div class="specs-box">
+                    <div class="specs-grid">
+                        ${specsHtml}
+                    </div>
+                </div>
+
+                ${customer.nearby ? `
+                <div class="highlight-box">
+                    <div class="highlight-title">🌟 物件優勢與生活機能</div>
+                    <div class="highlight-text">${customer.nearby}</div>
+                </div>` : '<div style="flex-grow:1"></div>'} 
+
+                <div class="footer">
+                    <div class="agent-info">
+                        <div class="agent-title">專屬承辦經紀人</div>
+                        <h3>${agentName}</h3>
+                        <div class="agent-slogan">誠信服務 • 專業熱忱 • 用心經營</div>
+                    </div>
+                    <div class="contact-info">
+                        <div class="phone">☎ ${agentPhone}</div>
+                        ${agentLine ? `<div class="line-id">LINE ID: ${agentLine}</div>` : ''}
+                    </div>
+                </div>
+            </div>
+        `);
+
+        win.document.write('</body></html>');
+        win.document.close();
+        
+        setTimeout(() => {
+            win.print();
+        }, 500);
+    };
+
+    const matchedObjects = useMemo(() => {
+        const safeFloat = (v) => { if (!v) return 0; const num = parseFloat(String(v).replace(/,/g, '')); return isNaN(num) ? 0 : num; };
         return allCustomers.filter(item => {
-            // ★★★ 核心權限邏輯 (RBAC) ★★★
-            // 如果不是管理員：
-            // 當 item 是買方/客戶 (非案件)，必須是「自己的」才看得到。
-            // (即：業務看案件->OK, 業務看別人的買方->Block)
             if (!isAdmin) {
                 const itemIsCase = ['賣方', '出租', '出租方'].includes(item.category);
                 const itemIsMine = item.owner === currentUser?.username;
-                
-                // 如果配對到的對象是「買方/私有客戶」，且不是我的 => 隱藏
                 if (!itemIsCase && !itemIsMine) return false;
             }
-            // -----------------------------
-
             const itemIsSeller = ['賣方', '出租', '出租方'].includes(item.category);
-
             if (!isSeller) {
                 if (!itemIsSeller) return false; 
                 if (customer.category.includes('買') && !item.category.includes('賣') && !item.category.includes('售')) return false;
                 if (customer.category.includes('租') && !item.category.includes('租')) return false;
-
                 if (customer.reqRegion) {
                     const buyerRegion = customer.reqRegion.trim();
                     const itemRealRegion = item.reqRegion ? item.reqRegion.trim() : '';
                     const itemFolderRegion = item.assignedRegion ? item.assignedRegion.trim() : '';
                     if (!buyerRegion.includes(itemRealRegion) && !buyerRegion.includes(itemFolderRegion)) return false; 
                 }
-
-                if (customer.targetPropertyType && customer.targetPropertyType !== '不限') {
-                    if (item.propertyType && item.propertyType !== customer.targetPropertyType) return false;
-                    if (!item.propertyType) return false; 
-                }
-
                 const minPing = safeFloat(customer.minPing);
                 const maxPing = safeFloat(customer.maxPing);
                 if (minPing > 0 || maxPing > 0) {
@@ -77,18 +220,12 @@ const CustomerDetail = ({ customer, allCustomers = [], currentUser, onEdit, onDe
                 if (itemIsSeller) return false; 
                 if (customer.category.includes('賣') && !item.category.includes('買')) return false;
                 if (customer.category.includes('租') && !item.category.includes('租')) return false;
-
                 if (item.reqRegion) {
                     const buyerWantRegion = item.reqRegion.trim();
                     const myRealRegion = customer.reqRegion ? customer.reqRegion.trim() : '';
                     const myFolderRegion = customer.assignedRegion ? customer.assignedRegion.trim() : '';
                     if (!buyerWantRegion.includes(myRealRegion) && !buyerWantRegion.includes(myFolderRegion)) return false;
                 }
-
-                if (item.targetPropertyType && item.targetPropertyType !== '不限') {
-                    if (customer.propertyType && customer.propertyType !== item.targetPropertyType) return false;
-                }
-
                 const buyerMin = safeFloat(item.minPing);
                 const buyerMax = safeFloat(item.maxPing);
                 if (buyerMin > 0 || buyerMax > 0) {
@@ -119,6 +256,17 @@ const CustomerDetail = ({ customer, allCustomers = [], currentUser, onEdit, onDe
                     <StatusBadge status={customer.status} />
                 </div>
                 <div className="flex gap-2">
+                    {isSeller && (
+                        <button 
+                            onClick={handlePrint}
+                            className="p-2 text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-full transition-colors flex items-center gap-1 font-bold shadow-sm" 
+                            title="匯出 PDF"
+                        >
+                            <Printer className="w-5 h-5"/> 
+                            <span className="hidden sm:inline text-xs">匯出 PDF</span>
+                        </button>
+                    )}
+
                     <button onClick={onEdit} className="p-2 text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-full"><Edit className="w-5 h-5"/></button>
                     <button onClick={onDelete} className="p-2 text-red-600 bg-red-50 hover:bg-red-100 rounded-full"><Trash2 className="w-5 h-5"/></button>
                 </div>
@@ -135,16 +283,19 @@ const CustomerDetail = ({ customer, allCustomers = [], currentUser, onEdit, onDe
                     <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-300">
                         <div className={`p-5 rounded-2xl border ${darkMode ? 'bg-slate-900 border-slate-700' : 'bg-white border-gray-100'} shadow-sm`}>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                <div><label className="text-xs text-gray-400 block mb-1">聯絡電話</label><div className="flex items-center gap-2 font-mono text-lg font-bold"><Phone className="w-4 h-4 text-blue-500"/> {customer.phone || '未填寫'} <a href={`tel:${customer.phone}`} className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded">撥打</a></div></div>
-                                
                                 <div>
-                                    <label className="text-xs text-gray-400 block mb-1">{isSeller ? (isRental ? '租金' : '開價') : '需求預算'}</label>
-                                    <div className="text-2xl font-black text-green-500">
-                                        {isSeller ? customer.totalPrice : customer.value || 0} 
-                                        <span className="text-sm text-gray-500 ml-1">{isRental ? '元' : '萬'}</span>
+                                    <label className="text-xs text-gray-400 block mb-1">承辦專員</label>
+                                    <div className="flex items-center gap-2 font-bold text-blue-600">
+                                        <Briefcase className="w-4 h-4"/> 
+                                        {customer.assignedAgent || customer.ownerName || '未指定'}
                                     </div>
                                 </div>
-                                
+
+                                <div><label className="text-xs text-gray-400 block mb-1">聯絡電話</label><div className="flex items-center gap-2 font-mono text-lg font-bold"><Phone className="w-4 h-4 text-blue-500"/> {customer.phone || '未填寫'} <a href={`tel:${customer.phone}`} className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded">撥打</a></div></div>
+                                <div>
+                                    <label className="text-xs text-gray-400 block mb-1">{isSeller ? (isRental ? '租金' : '開價') : '需求預算'}</label>
+                                    <div className="text-2xl font-black text-green-500">{isSeller ? customer.totalPrice : customer.value || 0} <span className="text-sm text-gray-500 ml-1">{isRental ? '元' : '萬'}</span></div>
+                                </div>
                                 {!isSeller && (
                                     <>
                                         <div><label className="text-xs text-gray-400 block mb-1">需求區域</label><div className="font-bold">{customer.reqRegion || '不限'}</div></div>
@@ -152,7 +303,6 @@ const CustomerDetail = ({ customer, allCustomers = [], currentUser, onEdit, onDe
                                         <div><label className="text-xs text-gray-400 block mb-1">需求坪數</label><div className="font-bold">{customer.minPing || 0} ~ {customer.maxPing || '不限'} 坪</div></div>
                                     </>
                                 )}
-
                                 {isSeller && (
                                     <>
                                         <div><label className="text-xs text-gray-400 block mb-1">物件類型</label><div className="font-bold">{customer.propertyType || '未指定'}</div></div>
@@ -160,12 +310,9 @@ const CustomerDetail = ({ customer, allCustomers = [], currentUser, onEdit, onDe
                                         <div className="md:col-span-2"><label className="text-xs text-gray-400 block mb-1">地址</label><div className="font-bold flex items-center gap-2"><MapPin className="w-4 h-4"/> {customer.landNo || '未填寫'}</div></div>
                                     </>
                                 )}
-
                                 <div className="md:col-span-2 pt-4 border-t dark:border-slate-700">
                                     <label className="text-xs text-gray-400 block mb-2 flex items-center gap-1"><StickyNote className="w-3 h-3"/> 備註事項</label>
-                                    <div className="p-3 bg-gray-50 dark:bg-slate-800 rounded-lg text-sm whitespace-pre-wrap leading-relaxed">
-                                        {customer.remarks || "無備註內容"}
-                                    </div>
+                                    <div className="p-3 bg-gray-50 dark:bg-slate-800 rounded-lg text-sm whitespace-pre-wrap leading-relaxed">{customer.remarks || "無備註內容"}</div>
                                 </div>
                             </div>
                         </div>
@@ -174,7 +321,7 @@ const CustomerDetail = ({ customer, allCustomers = [], currentUser, onEdit, onDe
 
                 {activeTab === 'notes' && (
                     <div className="space-y-4">
-                        <form onSubmit={handleAddNoteSubmit} className="flex gap-2 mb-4"><input value={noteContent} onChange={e => setNoteContent(e.target.value)} placeholder="輸入回報內容..." className={`flex-1 px-4 py-3 rounded-xl border outline-none ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white'}`} /><button type="submit" className="bg-blue-600 text-white px-4 py-2 rounded-xl font-bold"><Plus/></button></form>
+                        <form onSubmit={handleAddNoteSubmit} className="flex gap-2 mb-4"><input value={noteContent} onChange={e => setNoteContent(e.target.value)} placeholder="輸入回報內容..." className={`flex-1 px-4 py-3 rounded-xl border outline-none ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white'}`} /><button type="submit" className="bg-blue-600 text-white px-4 py-2 rounded-xl font-bold"><Plus className="w-5 h-5"/></button></form>
                         <div className="space-y-3">
                             {(customer.notes || []).length === 0 ? <p className="text-center text-gray-400 py-10">尚無紀錄</p> : 
                             [...customer.notes].reverse().map((note, idx) => (
@@ -187,7 +334,7 @@ const CustomerDetail = ({ customer, allCustomers = [], currentUser, onEdit, onDe
                         </div>
                     </div>
                 )}
-
+                
                 {activeTab === 'match' && (
                     <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4">
                         <div className="bg-purple-50 dark:bg-purple-900/20 p-4 rounded-xl text-purple-800 dark:text-purple-200 text-sm mb-4">
@@ -210,51 +357,19 @@ const CustomerDetail = ({ customer, allCustomers = [], currentUser, onEdit, onDe
                         </div>
 
                         {matchedObjects.length === 0 ? (
-                            <div className="text-center py-20 opacity-50">
-                                {isSeller ? <User className="w-16 h-16 mx-auto mb-4 text-gray-300"/> : <Home className="w-16 h-16 mx-auto mb-4 text-gray-300"/>}
-                                <p>{isSeller ? '目前沒有符合需求的買方' : '目前沒有符合條件的物件'}</p>
-                            </div>
+                            <div className="text-center py-20 opacity-50"><p>{isSeller ? '目前沒有符合需求的買方' : '目前沒有符合條件的物件'}</p></div>
                         ) : (
                             <div className="grid grid-cols-1 gap-3">
                                 {matchedObjects.map(obj => (
                                     <div key={obj.id} className={`flex justify-between p-4 rounded-xl border ${darkMode ? 'bg-slate-900 border-slate-700' : 'bg-white border-gray-200'} hover:border-purple-400 transition-colors`}>
-                                        {isSeller ? (
-                                            <>
-                                                <div>
-                                                    <div className="flex items-center gap-2 mb-1">
-                                                        <span className="bg-blue-100 text-blue-600 px-2 py-0.5 rounded text-xs font-bold">{obj.category}</span>
-                                                        <h4 className="font-bold">{obj.name}</h4>
-                                                    </div>
-                                                    <div className="text-xs text-gray-500 flex flex-wrap gap-2">
-                                                        <span className="bg-gray-100 dark:bg-slate-800 px-1.5 rounded flex items-center gap-1"><MapPin className="w-3 h-3"/> {obj.reqRegion || '不限'}</span>
-                                                        <span className="bg-gray-100 dark:bg-slate-800 px-1.5 rounded">{obj.targetPropertyType || '不限類型'}</span>
-                                                        <span className="flex items-center gap-1"><Briefcase className="w-3 h-3"/> {obj.ownerName}</span>
-                                                    </div>
-                                                </div>
-                                                <div className="text-right">
-                                                    <div className="text-xl font-black text-blue-500">{obj.value ? `${obj.value}` : '未填'} <span className="text-xs text-gray-400">萬</span></div>
-                                                    <div className="text-xs text-gray-400 mt-1">預算</div>
-                                                </div>
-                                            </>
-                                        ) : (
-                                            <>
-                                                <div>
-                                                    <div className="flex items-center gap-2 mb-1">
-                                                        <span className="bg-orange-100 text-orange-600 px-2 py-0.5 rounded text-xs font-bold">{obj.category}</span>
-                                                        <h4 className="font-bold">{obj.caseName}</h4>
-                                                    </div>
-                                                    <div className="text-xs text-gray-500 flex flex-wrap gap-2">
-                                                        <span className="bg-gray-100 dark:bg-slate-800 px-1.5 rounded">{obj.reqRegion || obj.assignedRegion}</span>
-                                                        <span className="bg-gray-100 dark:bg-slate-800 px-1.5 rounded">{obj.propertyType || '未分類'}</span>
-                                                        <span>地{obj.landPing} / 建{obj.buildPing}</span>
-                                                    </div>
-                                                </div>
-                                                <div className="text-right">
-                                                    <div className="text-xl font-black text-green-500">{obj.totalPrice} <span className="text-xs text-gray-400">{isRental ? '元' : '萬'}</span></div>
-                                                    <div className="text-xs text-gray-400 mt-1">{obj.unitPrice} {isRental ? '元/坪' : '萬/坪'}</div>
-                                                </div>
-                                            </>
-                                        )}
+                                        <div>
+                                            <div className="font-bold flex items-center gap-2">
+                                                {obj.name || obj.caseName} 
+                                                <span className="text-xs bg-gray-100 dark:bg-slate-800 px-1 rounded flex items-center gap-1">
+                                                    <Briefcase className="w-3 h-3"/> {obj.ownerName}
+                                                </span>
+                                            </div>
+                                        </div>
                                     </div>
                                 ))}
                             </div>

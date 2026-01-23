@@ -1,13 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { X, Save, Calculator, MapPin, Image as ImageIcon, Users, FolderOpen, Calendar, CreditCard, Plus, Trash2, Warehouse, AlertCircle, Building } from 'lucide-react';
+import { X, Save, Calculator, MapPin, Image as ImageIcon, Users, FolderOpen, Calendar, CreditCard, Plus, Trash2, Warehouse, AlertCircle, Building, UserCheck } from 'lucide-react';
 import { getFirestore, collection, addDoc, serverTimestamp } from 'firebase/firestore'; 
 import { appId, DEFAULT_SOURCES, DEFAULT_CATEGORIES, DEFAULT_LEVELS } from '../config/constants';
 
 const CustomerForm = ({ onSubmit, onCancel, initialData, appSettings, companyProjects, allUsers = [], currentUser, customers = [] }) => {
+    // 這裡我們初始化 assignedAgent，如果原本資料有就用原本的，沒有就預設為空
     const [formData, setFormData] = useState(initialData || {
         name: '', phone: '', category: '買方',
         status: 'new', level: 'C', source: '網路廣告',
-        project: '', subAgent: '', 
+        project: '', subAgent: '', assignedAgent: '', // ★ 新增欄位：指定專員
         
         minPing: '', maxPing: '',
         targetPropertyType: '', 
@@ -142,7 +143,6 @@ const CustomerForm = ({ onSubmit, onCancel, initialData, appSettings, companyPro
         setFormData({ ...formData, project: current.join(',') });
     };
 
-    // ★ 新增：地址轉連結 ★
     const generateMapLink = () => {
         if (!formData.landNo) {
             alert("請先輸入地號或門牌");
@@ -199,6 +199,24 @@ const CustomerForm = ({ onSubmit, onCancel, initialData, appSettings, companyPro
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                     <div className="md:col-span-2"><label className="block text-xs font-bold text-gray-500 mb-1">案件名稱</label><input name="caseName" value={formData.caseName || ''} onChange={handleChange} className="w-full p-2 rounded-lg border dark:bg-slate-800 dark:border-slate-700 dark:text-white font-bold text-lg" placeholder="例如：美術特區景觀三房" /></div>
                                     
+                                    {/* ★★★ 1. 新增：指定承辦專員 (列印用) ★★★ */}
+                                    <div className="md:col-span-2">
+                                        <label className="block text-xs font-bold text-gray-500 mb-1 flex items-center gap-1"><UserCheck className="w-3 h-3"/> 指定承辦專員 (列印聯絡人)</label>
+                                        <select 
+                                            name="assignedAgent" 
+                                            value={formData.assignedAgent || ''} 
+                                            onChange={handleChange}
+                                            className="w-full p-2 rounded-lg border dark:bg-slate-800 dark:border-slate-700 dark:text-white"
+                                        >
+                                            <option value="">(預設為當前登入者)</option>
+                                            {allUsers.map(user => (
+                                                <option key={user.id} value={user.name}>
+                                                    {user.name}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </div>
+
                                     <div>
                                         <label className="block text-xs font-bold text-gray-500 mb-1"><MapPin className="inline w-3 h-3"/> 物件所在區域 (行政區)</label>
                                         <div 
@@ -231,7 +249,6 @@ const CustomerForm = ({ onSubmit, onCancel, initialData, appSettings, companyPro
                                 </div>
                                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4"><div><label className="block text-xs font-bold text-gray-500 mb-1">使用樓層</label><input name="floor" value={formData.floor || ''} onChange={handleChange} className="w-full p-2 rounded-lg border dark:bg-slate-800 dark:border-slate-700 dark:text-white" /></div><div><label className="block text-xs font-bold text-gray-500 mb-1">完工日期</label><input type="date" name="completeDate" value={formData.completeDate || ''} onChange={handleChange} className="w-full p-2 rounded-lg border dark:bg-slate-800 dark:border-slate-700 dark:text-white" /></div><div><label className="block text-xs font-bold text-orange-500 mb-1">屋齡 (年)</label><input readOnly value={formData.houseAge || ''} className="w-full p-2 rounded-lg bg-orange-50 dark:bg-orange-900/30 border-none text-orange-600 font-bold" /></div><div><label className="block text-xs font-bold text-gray-500 mb-1">學區</label><input name="schoolDist" value={formData.schoolDist || ''} onChange={handleChange} className="w-full p-2 rounded-lg border dark:bg-slate-800 dark:border-slate-700 dark:text-white" /></div></div>
                                 
-                                {/* ★★★ 連結功能 ★★★ */}
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                     <div>
                                         <label className="block text-xs font-bold text-gray-500 mb-1"><MapPin className="inline w-3 h-3"/> Google 地圖連結</label>
