@@ -99,7 +99,7 @@ const CustomerDetail = ({ customer, allCustomers = [], currentUser, onEdit, onDe
         return '18px';
     };
 
-    // ★★★ 列印執行邏輯 (純淨 A4 滿版) ★★★
+    // ★★★ 列印執行邏輯 (修正灰框與控制列) ★★★
     const executePrint = () => {
         const watermarkText = prompt("請輸入浮水印文字 (預設：綠芽團隊 0800666738)", "綠芽團隊 0800666738") || "綠芽團隊 0800666738";
         const todayStr = new Date().toLocaleDateString('zh-TW', { year: 'numeric', month: '2-digit', day: '2-digit' });
@@ -116,7 +116,6 @@ const CustomerDetail = ({ customer, allCustomers = [], currentUser, onEdit, onDe
         const agentPhone = finalAgent?.phone || '09xx-xxx-xxx';
         const agentLine = finalAgent?.lineId || ''; 
         
-        // 生成純淨圖片頁面
         const generateImagePage = (src, title, id) => {
             if (!src) return '';
             const isPdf = src.startsWith('data:application/pdf');
@@ -214,45 +213,50 @@ const CustomerDetail = ({ customer, allCustomers = [], currentUser, onEdit, onDe
             html, body { 
                 margin: 0; padding: 0; 
                 font-family: "Microsoft JhengHei", "Noto Sans TC", sans-serif; 
-                background: #555; /* 預覽時深色背景，強調紙張 */
+                /* ★ 修正重點：背景設為全白，避免溢出顏色 ★ */
+                background: white;
                 -webkit-print-color-adjust: exact; 
                 print-color-adjust: exact;
+                width: 100%; height: 100%; 
                 counter-reset: page-counter;
+                overflow: visible;
             }
             
             @media print {
-                .no-print { display: none !important; }
-                body { background: none; } /* 列印時移除 body 背景 */
+                /* ★ 修正重點：強制隱藏控制列，使用 !important 覆蓋所有樣式 ★ */
+                .no-print { display: none !important; visibility: hidden !important; opacity: 0 !important; height: 0 !important; }
+                body { background: white; } 
             }
 
             .counter::after { content: counter(page-counter); }
 
-            /* ★ A4 紙張容器 (標準尺寸) ★ */
+            /* ★ A4 紙張容器 ★ */
             .page-sheet {
                 width: 210mm;
                 height: 297mm;
                 position: relative;
-                overflow: hidden; /* ★ 確保內容不溢出 ★ */
+                overflow: hidden;
                 box-sizing: border-box;
                 page-break-after: always;
                 counter-increment: page-counter;
                 margin: 0 auto;
             }
 
-            /* ★ 首頁樣式 (綠色背景) ★ */
+            /* ★ 首頁樣式 (只有這裡有綠底) ★ */
             .first-page {
-                background: #064e3b; /* 只有這頁是綠色 */
+                background: #064e3b; 
                 color: #f0fdf4;
-                padding: 6mm 10mm; /* 內距 */
+                padding: 6mm 10mm; 
                 border: 4px double #d4af37;
                 display: flex; flex-direction: column;
             }
 
-            /* ★ 圖資頁樣式 (白色背景) ★ */
+            /* ★ 圖資頁樣式 (全白，無邊框) ★ */
             .image-page {
-                background: white; /* 只有這頁是白色 */
+                background: white; 
                 display: flex; justify-content: center; align-items: center;
                 padding: 0;
+                border: none; /* 移除邊框 */
             }
 
             /* 滿版圖片 */
@@ -291,7 +295,7 @@ const CustomerDetail = ({ customer, allCustomers = [], currentUser, onEdit, onDe
             }
             .watermark-layer img { width: 100%; height: auto; }
 
-            /* 首頁內部 */
+            /* 首頁內部元件 */
             .header { border-bottom: 2px double #d4af37; padding-bottom: 5px; margin-bottom: 6px; display: flex; justify-content: space-between; align-items: flex-end; position: relative; z-index: 1; flex-shrink: 0; }
             .header::after { content: '◈'; position: absolute; bottom: -10px; left: 50%; transform: translateX(-50%); color: #d4af37; background: #064e3b; padding: 0 8px; font-size: 12px; }
             .header h1 { margin: 0; font-size: 24px; color: #d4af37; font-weight: 900; letter-spacing: 2px; }
@@ -303,7 +307,7 @@ const CustomerDetail = ({ customer, allCustomers = [], currentUser, onEdit, onDe
             
             .title-section { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 6px; position: relative; z-index: 1; flex-shrink: 0; }
             .title-info { width: 60%; }
-            .case-name { font-size: 26px; font-weight: 900; color: #ffffff; margin: 0 0 4px 0; line-height: 1.1; }
+            .case-name { font-size: 26px; font-weight: 900; color: #ffffff; margin: 0 0 2px 0; line-height: 1.1; }
             .address { font-size: 14px; color: #d4af37; font-weight: bold; display: flex; align-items: center; gap: 5px; }
             .price-info { width: 40%; text-align: right; }
             .price-val { font-size: 48px; font-weight: 900; color: #d4af37; line-height: 1; font-family: 'Arial Black', sans-serif; }
@@ -341,10 +345,10 @@ const CustomerDetail = ({ customer, allCustomers = [], currentUser, onEdit, onDe
         `);
         win.document.write('</style></head><body>');
         
-        // ★ 控制列 ★
+        // ★ 移除 inline style，完全依賴 CSS .no-print ★
         win.document.write(`
             <div class="control-bar no-print">
-                <span class="hint">請使用手機列印功能手動調整縮放 (約 95%-100%) 以達滿版。</span>
+                <span class="hint">請手動調整手機列印縮放以達滿版。</span>
                 <div>
                     <button class="btn btn-print" onclick="window.print()">🖨️ 列印 / 另存 PDF</button>
                     <button class="btn btn-close" onclick="window.close()">關閉</button>
