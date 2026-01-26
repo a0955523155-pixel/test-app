@@ -55,7 +55,7 @@ const CustomerDetail = ({ customer, allCustomers = [], currentUser, onEdit, onDe
     const [printOptions, setPrintOptions] = useState({
         cover: true, cadastral: true, route: true, location: true, plan: true,
         coverFit: false, 
-        coverPos: 50
+        coverPos: 50 // 0-100
     });
 
     const isSeller = ['賣方', '出租', '出租方'].includes(customer.category);
@@ -99,7 +99,7 @@ const CustomerDetail = ({ customer, allCustomers = [], currentUser, onEdit, onDe
         return '18px';
     };
 
-    // ★★★ 列印執行邏輯 (分頁隔離修復) ★★★
+    // ★★★ 列印執行邏輯 (手機安全版面) ★★★
     const executePrint = () => {
         const watermarkText = prompt("請輸入浮水印文字 (預設：綠芽團隊 0800666738)", "綠芽團隊 0800666738") || "綠芽團隊 0800666738";
         const todayStr = new Date().toLocaleDateString('zh-TW', { year: 'numeric', month: '2-digit', day: '2-digit' });
@@ -116,17 +116,16 @@ const CustomerDetail = ({ customer, allCustomers = [], currentUser, onEdit, onDe
         const agentPhone = finalAgent?.phone || '09xx-xxx-xxx';
         const agentLine = finalAgent?.lineId || ''; 
         
-        // 生成純淨圖片頁面 (獨立結構)
+        // 生成純淨圖片頁面 (修正縮小問題)
         const generateImagePage = (src, title, id) => {
             if (!src) return '';
             const isPdf = src.startsWith('data:application/pdf');
             
-            // ★ 圖片頁專用 HTML 結構：完全獨立，不與首頁共用樣式
             if (isPdf) {
                 const blob = base64ToBlob(src);
                 const blobUrl = blob ? URL.createObjectURL(blob) : '';
                 return `
-                    <div class="image-page-container">
+                    <div class="page-sheet image-page">
                         <div class="pdf-full-wrapper">
                             <div class="pdf-controls no-print"><span>⚠️ PDF 需單獨列印</span><button onclick="printPdfFrame('${id}')">🖨️ 單獨列印</button></div>
                             <iframe id="${id}" src="${blobUrl}" class="pdf-frame"></iframe>
@@ -136,8 +135,7 @@ const CustomerDetail = ({ customer, allCustomers = [], currentUser, onEdit, onDe
                     </div>`;
             } else {
                 return `
-                    <div class="image-page-container">
-                        ${watermarkImg ? `<div class="watermark-layer"><img src="${watermarkImg}" /></div>` : ''}
+                    <div class="page-sheet image-page">
                         <img src="${src}" class="full-page-img" />
                         <div class="image-page-footer">Page <span class="counter"></span> • ${todayStr}</div>
                         <div class="image-title-overlay">${customer.caseName || customer.name} - ${title}</div>
@@ -198,7 +196,7 @@ const CustomerDetail = ({ customer, allCustomers = [], currentUser, onEdit, onDe
                 <div class="spec-item"><div class="spec-label">土地坪數</div><div class="spec-value">${customer.landPing || '-'} 坪</div></div>
                 <div class="spec-item"><div class="spec-label">格局</div><div class="spec-value">${customer.room || '-'}房 ${customer.hall || '-'}廳 ${customer.bath || '-'}衛</div></div>
                 <div class="spec-item mt-1"><div class="spec-label">屋齡</div><div class="spec-value">${customer.age || '-'} 年</div></div>
-                <div class="spec-item mt-1"><div class="spec-label">樓層</div><div class="spec-value">${customer.floor || '-'} / ${customer.totalFloor || '-'} 樓</div></div>
+                <div class="spec-item mt-1"><div class="spec-label">樓層</div><div class="spec-value">${customer.floor || '-'} / ${customer.totalFloor || '-'} / B${customer.basement || '-'}</div></div>
                 <div class="spec-item mt-1"><div class="spec-label">型態</div><div class="spec-value">${customer.propertyType || '電梯大樓'}</div></div>
             `;
         }
@@ -209,58 +207,73 @@ const CustomerDetail = ({ customer, allCustomers = [], currentUser, onEdit, onDe
         win.document.write('<meta name="format-detection" content="telephone=no">');
         win.document.write('<style>');
         win.document.write(`
-            /* ★ 重置與全局 ★ */
             @page { size: A4 portrait; margin: 0; }
-            html, body { margin: 0; padding: 0; font-family: "Microsoft JhengHei", sans-serif; background: #333; -webkit-print-color-adjust: exact; print-color-adjust: exact; width: 100%; height: 100%; counter-reset: page-counter; }
+            html, body { 
+                margin: 0; padding: 0; 
+                font-family: "Microsoft JhengHei", "Noto Sans TC", sans-serif; 
+                background: #333; 
+                -webkit-print-color-adjust: exact; 
+                print-color-adjust: exact; 
+                width: 100%; height: 100%; 
+                counter-reset: page-counter;
+                overflow: visible; /* 允許分頁 */
+            }
             
             @media print {
                 .no-print { display: none !important; }
-                body { background: white; } /* 列印時背景改回白 */
+                body { background: white; } 
+                /* ★ 關鍵：手機縮放修正 (解決跑版) ★ */
+                body { zoom: 0.95; } 
             }
 
-            /* ★ CSS 計數器 (處理頁碼) ★ */
+            /* CSS 計數器 */
             .counter::after { content: counter(page-counter); }
 
-            /* ★ 1. 首頁樣式 (綠色主題) ★ */
-            .first-page-container {
-                width: 210mm;
-                height: 296mm; /* 鎖定高度 */
-                padding: 6mm 10mm;
-                box-sizing: border-box;
-                margin: 0 auto;
-                background: #064e3b;
-                border: 4px double #d4af37;
-                display: flex; flex-direction: column;
-                position: relative;
-                overflow: hidden;
-                page-break-after: always; /* 強制分頁 */
-                counter-increment: page-counter;
-            }
-
-            /* ★ 2. 圖資頁樣式 (白色滿版) ★ */
-            .image-page-container {
+            /* 通用頁面容器 - 預設高度 A4 */
+            .page-sheet {
                 width: 210mm;
                 height: 296mm;
-                padding: 0;
-                margin: 0 auto;
-                background: white; /* 確保白底 */
-                display: flex; justify-content: center; align-items: center;
                 position: relative;
                 overflow: hidden;
-                page-break-before: always; /* ★ 關鍵：每一張圖都在新的一頁 ★ */
+                box-sizing: border-box;
                 page-break-after: always;
                 counter-increment: page-counter;
             }
 
-            /* 滿版圖片 */
-            .full-page-img {
-                max-width: 100%;
-                max-height: 100%;
-                object-fit: contain; /* 保持比例完整顯示 */
-                z-index: 10;
+            /* ★★★ 1. 首頁樣式 (綠色主題，高度縮減至 260mm) ★★★ */
+            .first-page {
+                height: 260mm !important; /* ★ 縮短高度，預留手機強制邊距 ★ */
+                background: #064e3b;
+                color: #f0fdf4;
+                padding: 6mm 10mm;
+                border: 4px double #d4af37;
+                display: flex; flex-direction: column;
+                margin: 0 auto;
             }
 
-            /* 圖資頁的小標題 (浮動) */
+            /* ★★★ 2. 圖資頁樣式 (白色滿版，修正縮小問題) ★★★ */
+            .image-page {
+                height: 296mm; /* 圖資頁可以用滿版 */
+                padding: 0;
+                margin: 0 auto;
+                background: white;
+                position: relative;
+                overflow: hidden;
+                page-break-before: always;
+                page-break-after: always;
+                counter-increment: page-counter;
+            }
+
+            /* ★ 滿版圖片修正：絕對定位拉伸 ★ */
+            .full-page-img {
+                position: absolute;
+                top: 0; left: 0;
+                width: 100%; height: 100%;
+                object-fit: contain; /* 保持比例，最大化顯示 */
+                z-index: 10;
+                background: white; /* 確保無底色 */
+            }
+
             .image-title-overlay {
                 position: absolute; top: 10px; left: 10px;
                 background: rgba(0,0,0,0.6); color: #fbbf24;
@@ -269,29 +282,28 @@ const CustomerDetail = ({ customer, allCustomers = [], currentUser, onEdit, onDe
                 z-index: 20;
             }
 
-            /* 圖資頁的頁碼 (浮動) */
             .image-page-footer {
                 position: absolute; bottom: 10px; right: 10px;
                 font-size: 10px; color: #666;
                 font-family: monospace;
                 z-index: 20;
+                background: rgba(255,255,255,0.8); /* 加個底色確保可讀 */
+                padding: 2px 5px; rounded: 4px;
             }
 
-            /* 首頁的頁碼 */
             .first-page-footer-date {
                 position: absolute; bottom: 5px; right: 10px;
                 font-size: 10px; color: rgba(255,255,255,0.4);
                 font-family: monospace;
             }
 
-            /* 浮水印 */
             .watermark-layer {
                 position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%) rotate(-30deg);
                 z-index: 5; pointer-events: none; width: 70%; opacity: 0.15;
             }
             .watermark-layer img { width: 100%; height: auto; }
 
-            /* --- 首頁內部元件 --- */
+            /* 首頁內部 */
             .header { border-bottom: 2px double #d4af37; padding-bottom: 5px; margin-bottom: 6px; display: flex; justify-content: space-between; align-items: flex-end; position: relative; z-index: 1; flex-shrink: 0; }
             .header::after { content: '◈'; position: absolute; bottom: -10px; left: 50%; transform: translateX(-50%); color: #d4af37; background: #064e3b; padding: 0 8px; font-size: 12px; }
             .header h1 { margin: 0; font-size: 24px; color: #d4af37; font-weight: 900; letter-spacing: 2px; }
@@ -341,10 +353,9 @@ const CustomerDetail = ({ customer, allCustomers = [], currentUser, onEdit, onDe
         `);
         win.document.write('</style></head><body>');
         
-        // ★ 控制列 ★
         win.document.write(`
             <div class="control-bar no-print">
-                <span class="hint">最終修復：首頁綠底固定高度，圖資頁白底滿版，無網址。</span>
+                <span class="hint">最終修復：首頁高度縮減，圖資頁滿版拉伸，無網址。</span>
                 <div>
                     <button class="btn btn-print" onclick="window.print()">🖨️ 列印 / 另存 PDF</button>
                     <button class="btn btn-close" onclick="window.close()">關閉</button>
@@ -354,7 +365,7 @@ const CustomerDetail = ({ customer, allCustomers = [], currentUser, onEdit, onDe
 
         // --- 頁面 1 (首頁：綠底) ---
         win.document.write(`
-            <div class="first-page-container">
+            <div class="page-sheet first-page">
                 ${watermarkImg ? `<div class="watermark-layer"><img src="${watermarkImg}" /></div>` : ''}
                 <div class="header"><h1>綠芽團隊</h1><span>GreenShootTeam</span></div>
                 ${coverHtml}
