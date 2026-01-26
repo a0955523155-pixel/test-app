@@ -99,12 +99,9 @@ const CustomerDetail = ({ customer, allCustomers = [], currentUser, onEdit, onDe
         return '18px';
     };
 
-    // ★★★ 列印執行邏輯 (完美滿版 + 自訂日期) ★★★
+    // ★★★ 列印執行邏輯 (分頁重構版) ★★★
     const executePrint = () => {
         const watermarkText = prompt("請輸入浮水印文字 (預設：綠芽團隊 0800666738)", "綠芽團隊 0800666738") || "綠芽團隊 0800666738";
-        // 取得今日日期字串
-        const todayStr = new Date().toLocaleDateString('zh-TW', { year: 'numeric', month: '2-digit', day: '2-digit' });
-        
         const win = window.open('', '', 'height=800,width=1200');
         
         let finalAgent = currentUser; 
@@ -117,25 +114,26 @@ const CustomerDetail = ({ customer, allCustomers = [], currentUser, onEdit, onDe
         const agentPhone = finalAgent?.phone || '09xx-xxx-xxx';
         const agentLine = finalAgent?.lineId || ''; 
         
-        const generateFullPageHtml = (src, id) => {
+        // 生成純淨圖片頁面 (白底、無框、滿版)
+        const generateImagePage = (src, id) => {
             if (!src) return '';
             const isPdf = src.startsWith('data:application/pdf');
             if (isPdf) {
                 const blob = base64ToBlob(src);
                 const blobUrl = blob ? URL.createObjectURL(blob) : '';
                 return `
-                    <div class="page-break full-page-container clean-page">
+                    <div class="page-sheet image-page">
                         <div class="pdf-full-wrapper">
                             <div class="pdf-controls no-print"><span>⚠️ PDF 需單獨列印</span><button onclick="printPdfFrame('${id}')">🖨️ 單獨列印</button></div>
                             <iframe id="${id}" src="${blobUrl}" class="pdf-frame"></iframe>
                         </div>
-                        <div class="print-date">列印日期：${todayStr}</div>
+                        <div class="page-number"></div>
                     </div>`;
             } else {
                 return `
-                    <div class="page-break full-page-container clean-page">
+                    <div class="page-sheet image-page">
                         <div class="img-full-bleed"><img src="${src}" /></div>
-                        <div class="print-date">列印日期：${todayStr}</div>
+                        <div class="page-number" style="color: #333;"></div>
                     </div>`;
             }
         };
@@ -163,10 +161,10 @@ const CustomerDetail = ({ customer, allCustomers = [], currentUser, onEdit, onDe
         }
 
         let attachmentsHtml = '';
-        if (printOptions.cadastral) attachmentsHtml += generateFullPageHtml(customer.imgCadastral, "pdf-cadastral");
-        if (printOptions.route) attachmentsHtml += generateFullPageHtml(customer.imgRoute, "pdf-route");
-        if (printOptions.location) attachmentsHtml += generateFullPageHtml(customer.imgLocation, "pdf-location");
-        if (printOptions.plan) attachmentsHtml += generateFullPageHtml(customer.imgPlan, "pdf-plan");
+        if (printOptions.cadastral) attachmentsHtml += generateImagePage(customer.imgCadastral, "pdf-cadastral");
+        if (printOptions.route) attachmentsHtml += generateImagePage(customer.imgRoute, "pdf-route");
+        if (printOptions.location) attachmentsHtml += generateImagePage(customer.imgLocation, "pdf-location");
+        if (printOptions.plan) attachmentsHtml += generateImagePage(customer.imgPlan, "pdf-plan");
 
         const displayCity = customer.city || customer.vendorCity || '高雄市'; 
         const displayArea = customer.reqRegion || customer.vendorDistrict || customer.area || '';
@@ -200,90 +198,69 @@ const CustomerDetail = ({ customer, allCustomers = [], currentUser, onEdit, onDe
 
         const calculatedFontSize = getAutoFontSize(customer.nearby);
 
-        win.document.write('<html><head><title>' + (customer.caseName || customer.name) + ' - 物件介紹</title>');
+        win.document.write('<html><head><title>' + (customer.caseName || customer.name) + '</title>');
         win.document.write('<meta name="format-detection" content="telephone=no">');
         win.document.write('<style>');
         win.document.write(`
-            /* ★ 強制重置邊距 (隱藏瀏覽器預設頁首頁尾) ★ */
+            /* ★ 全局設置：移除瀏覽器預設邊距 (隱藏網址/標題) ★ */
             @page { 
                 size: A4 portrait; 
                 margin: 0; 
             }
-            body { 
-                font-family: "Microsoft JhengHei", "Noto Sans TC", sans-serif; 
+            html, body { 
                 margin: 0; padding: 0; 
-                background: #064e3b; 
-                color: #f0fdf4;
+                font-family: "Microsoft JhengHei", "Noto Sans TC", sans-serif; 
+                background: white; /* 預設白底 (給圖資頁用) */
                 -webkit-print-color-adjust: exact; 
                 print-color-adjust: exact;
                 width: 100%; height: 100%;
-                overflow: hidden; /* 防止捲動 */
+                /* 啟用 CSS 計數器 */
+                counter-reset: page-counter;
             }
             
             @media print {
                 .no-print { display: none !important; }
                 .pdf-wrapper { border: none; height: 100%; display: flex; align-items: center; justify-content: center; }
-                .pdf-wrapper:after { content: "此頁為 PDF 文件，請使用網頁上的按鈕單獨列印。"; color: #d4af37; }
                 .pdf-frame { display: none; }
-                /* 移除縮放，改用滿版策略 */
+                /* 針對手機瀏覽器的安全縮放 */
+                body { transform: scale(0.99); transform-origin: top left; width: 101%; }
             }
 
-            /* ★ 強制滿版背景層 ★ */
-            .print-bg-layer {
-                position: fixed;
-                top: 0; left: 0;
-                width: 100vw; height: 100vh;
-                background-color: #064e3b;
-                z-index: -999;
-                print-color-adjust: exact;
-                -webkit-print-color-adjust: exact;
-            }
-
-            /* 自訂列印日期樣式 */
-            .print-date {
-                position: absolute;
-                bottom: 5px;
-                right: 10px;
-                font-size: 10px;
-                color: rgba(255, 255, 255, 0.4);
-                font-family: monospace;
-                z-index: 100;
-                pointer-events: none;
-            }
-
+            /* 控制列 */
             .control-bar { padding: 10px; background: #0f172a; border-bottom: 1px solid #1e293b; text-align: right; position: sticky; top: 0; z-index: 999; display: flex; justify-content: space-between; align-items: center; color: white; }
             .btn { padding: 6px 12px; border-radius: 4px; font-weight: bold; cursor: pointer; border: none; margin-left: 10px; font-size: 13px; }
             .btn-print { background: #d4af37; color: #022c22; }
             .btn-close { background: #374151; color: white; }
             .hint { font-size: 11px; color: #94a3b8; }
 
-            /* ★ A4 容器：減少 0.5mm 高度以避免瀏覽器計算誤差產生空白頁 ★ */
-            .page-container { 
-                width: 210mm; 
-                height: 296.5mm; /* 關鍵修改：比 297mm 稍微短一點點 */
-                padding: 5mm;    /* 極窄邊距，追求滿版 */
-                box-sizing: border-box; 
-                margin: 0 auto; 
-                display: flex; flex-direction: column; 
-                position: relative; 
-                border: 3px double #d4af37;
-                overflow: hidden; 
-                page-break-after: always; /* 確保分頁正確 */
-            }
-            
-            /* 其他圖資容器 */
-            .page-break { 
-                page-break-before: always; 
-                width: 210mm; height: 296.5mm; 
-                padding: 0; 
-                box-sizing: border-box; 
-                display: flex; flex-direction: column; 
-                margin: 0 auto; 
+            /* 通用頁面容器 */
+            .page-sheet {
+                width: 210mm;
+                height: 297mm;
                 position: relative;
                 overflow: hidden;
+                box-sizing: border-box;
+                page-break-after: always;
+                counter-increment: page-counter; /* 頁碼 +1 */
             }
 
-            .clean-page { background: white !important; border: none !important; padding: 0 !important; }
+            /* ★★★ 首頁樣式 (綠底+金框) ★★★ */
+            .first-page {
+                height: 270mm; /* 稍微縮短高度，防止手機分頁溢出 */
+                background: #064e3b;
+                color: #f0fdf4;
+                padding: 5mm 8mm;
+                border: 3px double #d4af37;
+                display: flex; flex-direction: column;
+                margin: 0 auto; /* 置中 */
+            }
+
+            /* ★★★ 圖資頁樣式 (白底+滿版) ★★★ */
+            .image-page {
+                background: white;
+                display: flex; align-items: center; justify-content: center;
+                padding: 0;
+            }
 
             .watermark-layer {
                 position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%) rotate(-30deg);
@@ -291,16 +268,30 @@ const CustomerDetail = ({ customer, allCustomers = [], currentUser, onEdit, onDe
             }
             .watermark-layer img { width: 100%; height: auto; }
 
+            /* 自訂頁碼與日期 */
+            .page-number {
+                position: absolute;
+                bottom: 5px;
+                right: 10px;
+                font-size: 10px;
+                color: rgba(255, 255, 255, 0.5); /* 首頁白色 */
+                font-family: monospace;
+                z-index: 100;
+                pointer-events: none;
+            }
+            /* 頁碼內容生成 */
+            .page-number::after {
+                content: "Page " counter(page-counter) " • " attr(data-date);
+            }
+
             /* Header */
-            .header { border-bottom: 2px double #d4af37; padding-bottom: 5px; margin-bottom: 5px; display: flex; justify-content: space-between; align-items: flex-end; position: relative; z-index: 1; flex-shrink: 0; }
+            .header { border-bottom: 2px double #d4af37; padding-bottom: 5px; margin-bottom: 6px; display: flex; justify-content: space-between; align-items: flex-end; position: relative; z-index: 1; flex-shrink: 0; }
             .header::after { content: '◈'; position: absolute; bottom: -10px; left: 50%; transform: translateX(-50%); color: #d4af37; background: #064e3b; padding: 0 8px; font-size: 12px; }
             .header h1 { margin: 0; font-size: 24px; color: #d4af37; font-weight: 900; letter-spacing: 2px; }
             .header span { font-size: 12px; font-weight: bold; color: #a7f3d0; text-transform: uppercase; letter-spacing: 2px; }
             
-            .header-small { position: absolute; top: 10px; left: 10px; z-index: 10; background: rgba(0,0,0,0.5); padding: 5px 10px; border-radius: 4px; font-weight: bold; color: #fbbf24; font-size: 12px;}
-
             /* 圖片區 */
-            .img-box { margin-bottom: 5px; border: 2px solid #d4af37; border-radius: 4px; overflow: hidden; position: relative; z-index: 1; flex-shrink: 0; }
+            .img-box { margin-bottom: 6px; border: 2px solid #d4af37; border-radius: 4px; overflow: hidden; position: relative; z-index: 1; flex-shrink: 0; }
             .img-title { background: #d4af37; color: #022c22; padding: 4px 8px; font-size: 12px; font-weight: bold; }
             .img-box img { width: 100%; height: 260px; } 
             .img-box iframe { width: 100%; height: 260px !important; border: none; }
@@ -314,9 +305,9 @@ const CustomerDetail = ({ customer, allCustomers = [], currentUser, onEdit, onDe
             .img-full-bleed { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; background: white; }
             .img-full-bleed img { width: 100%; height: 100%; object-fit: contain; }
 
-            .title-section { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 5px; position: relative; z-index: 1; flex-shrink: 0; }
+            .title-section { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 6px; position: relative; z-index: 1; flex-shrink: 0; }
             .title-info { width: 60%; }
-            .case-name { font-size: 26px; font-weight: 900; color: #ffffff; margin: 0 0 2px 0; line-height: 1.1; }
+            .case-name { font-size: 26px; font-weight: 900; color: #ffffff; margin: 0 0 4px 0; line-height: 1.1; }
             .address { font-size: 14px; color: #d4af37; font-weight: bold; display: flex; align-items: center; gap: 5px; }
             .price-info { width: 40%; text-align: right; }
             .price-val { font-size: 48px; font-weight: 900; color: #d4af37; line-height: 1; font-family: 'Arial Black', sans-serif; }
@@ -325,14 +316,14 @@ const CustomerDetail = ({ customer, allCustomers = [], currentUser, onEdit, onDe
             .specs-box { 
                 background: rgba(255,255,255,0.05); 
                 border: 1px solid rgba(212, 175, 55, 0.4); 
-                border-radius: 8px; padding: 8px; margin-bottom: 5px; position: relative; z-index: 1; flex-shrink: 0; 
+                border-radius: 8px; padding: 10px; margin-bottom: 6px; position: relative; z-index: 1; flex-shrink: 0; 
             }
-            .specs-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; column-gap: 15px; row-gap: 5px; }
+            .specs-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; column-gap: 15px; row-gap: 8px; }
             .spec-item { border-bottom: 1px dashed rgba(212, 175, 55, 0.3); padding-bottom: 2px; }
             .spec-label { font-size: 13px; color: #9ca3af; text-transform: uppercase; margin-bottom: 2px; }
             .spec-value { font-size: 18px; font-weight: bold; color: #ffffff; }
 
-            /* ★★★ 彈性區域：物件優勢 ★★★ */
+            /* 物件優勢 */
             .highlight-box { 
                 background: rgba(212, 175, 55, 0.05); 
                 border-left: 4px solid #d4af37; 
@@ -369,13 +360,13 @@ const CustomerDetail = ({ customer, allCustomers = [], currentUser, onEdit, onDe
         `);
         win.document.write('</style></head><body>');
         
-        // ★ 加入固定背景層 ★
-        win.document.write('<div class="print-bg-layer"></div>');
+        // ★ 取得今日日期 ★
+        const todayStr = new Date().toLocaleDateString('zh-TW', { year: 'numeric', month: '2-digit', day: '2-digit' });
 
-        // ★ 控制列 (no-print) ★
+        // ★ 控制列 ★
         win.document.write(`
             <div class="control-bar no-print">
-                <span class="hint">完美滿版：已修正邊距、隱藏預設文字、加入日期。</span>
+                <span class="hint">手機修正版：已移除網址標題，加入自訂頁碼。</span>
                 <div>
                     <button class="btn btn-print" onclick="window.print()">🖨️ 列印 / 另存 PDF</button>
                     <button class="btn btn-close" onclick="window.close()">關閉</button>
@@ -383,9 +374,10 @@ const CustomerDetail = ({ customer, allCustomers = [], currentUser, onEdit, onDe
             </div>
         `);
 
-        // --- 頁面 1 ---
+        // --- 頁面 1 (首頁：綠底) ---
+        // ★ 關鍵：高度設定為 270mm 以預留邊距 ★
         win.document.write(`
-            <div class="page-container">
+            <div class="page-sheet first-page">
                 ${watermarkImg ? `<div class="watermark-layer"><img src="${watermarkImg}" /></div>` : ''}
                 <div class="header"><h1>綠芽團隊</h1><span>GreenShootTeam</span></div>
                 ${coverHtml}
@@ -401,11 +393,11 @@ const CustomerDetail = ({ customer, allCustomers = [], currentUser, onEdit, onDe
                     <div class="agent-info"><h3>${agentName}</h3><div>誠信服務 • 專業熱忱</div></div>
                     <div class="contact-info"><div class="phone">☎ ${agentPhone}</div>${agentLine ? `<div class="line-id">LINE ID: ${agentLine}</div>` : ''}</div>
                 </div>
-                <div class="print-date">列印日期：${todayStr}</div>
+                <div class="page-number" data-date="${todayStr}"></div>
             </div>
         `);
 
-        // --- 頁面 2+ ---
+        // --- 頁面 2+ (圖資：白底) ---
         win.document.write(attachmentsHtml);
 
         win.document.write(`
@@ -585,7 +577,7 @@ const CustomerDetail = ({ customer, allCustomers = [], currentUser, onEdit, onDe
                     </div>
                 )}
 
-                {/* 智慧配對區塊 */}
+                {/* 智慧配對：案件顯示名稱及區域 */}
                 {activeTab === 'match' && (
                     <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4">
                         <div className="bg-purple-50 dark:bg-purple-900/20 p-4 rounded-xl text-purple-800 dark:text-purple-200 text-sm mb-4"><h3 className="font-bold flex items-center gap-2 mb-1"><Target className="w-4 h-4"/> 配對條件 ({isSeller ? '本案條件' : '需求條件'})</h3><ul className="list-disc list-inside opacity-80 text-xs">{isSeller ? (<><li>本案區域：{customer.reqRegion || customer.assignedRegion}</li><li>本案類型：{customer.propertyType || '未指定'}</li><li>本案坪數：地 {customer.landPing} / 建 {customer.buildPing}</li></>) : (<><li>需求區域：{customer.reqRegion || '不限'} (含歸檔區)</li><li>需求類型：{customer.targetPropertyType || '不限'}</li><li>需求坪數：{customer.minPing || 0} ~ {customer.maxPing || '不限'} 坪</li></>)}</ul></div>
