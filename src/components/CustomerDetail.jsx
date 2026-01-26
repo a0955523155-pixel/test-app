@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { 
   X, Phone, MapPin, Trash2, Edit, Printer, 
   StickyNote, Briefcase, CheckCircle, Plus, Target, CheckSquare, 
-  Image as ImageIcon, FileText, Map, Navigation, Layout, UploadCloud, Maximize2, Sliders
+  Image as ImageIcon, FileText, Map, Navigation, Layout, UploadCloud, Maximize2, Sliders, User
 } from 'lucide-react';
 import { STATUS_CONFIG } from '../config/constants';
 
@@ -55,7 +55,7 @@ const CustomerDetail = ({ customer, allCustomers = [], currentUser, onEdit, onDe
     const [printOptions, setPrintOptions] = useState({
         cover: true, cadastral: true, route: true, location: true, plan: true,
         coverFit: false, 
-        coverPos: 50 // ★ 改為 0-100 的數值，預設 50 (居中)
+        coverPos: 50
     });
 
     const isSeller = ['賣方', '出租', '出租方'].includes(customer.category);
@@ -91,14 +91,12 @@ const CustomerDetail = ({ customer, allCustomers = [], currentUser, onEdit, onDe
         }
     };
 
-    // ★★★ 計算字體大小 (根據字數自動縮放) ★★★
     const getAutoFontSize = (text) => {
         const len = (text || '').length;
-        if (len > 600) return '11px'; // 字非常多
-        if (len > 400) return '13px';
-        if (len > 250) return '15px';
-        if (len > 100) return '18px';
-        return '24px'; // 字很少，顯示大字
+        if (len > 400) return '14px';
+        if (len > 200) return '18px';
+        if (len > 100) return '22px';
+        return '28px';
     };
 
     // ★★★ 列印執行邏輯 ★★★
@@ -116,11 +114,9 @@ const CustomerDetail = ({ customer, allCustomers = [], currentUser, onEdit, onDe
         const agentPhone = finalAgent?.phone || '09xx-xxx-xxx';
         const agentLine = finalAgent?.lineId || ''; 
         
-        // ★ 生成純淨滿版頁面 (無邊框、無背景、無 header/footer)
         const generateFullPageHtml = (src, id) => {
             if (!src) return '';
             const isPdf = src.startsWith('data:application/pdf');
-            
             if (isPdf) {
                 const blob = base64ToBlob(src);
                 const blobUrl = blob ? URL.createObjectURL(blob) : '';
@@ -134,9 +130,7 @@ const CustomerDetail = ({ customer, allCustomers = [], currentUser, onEdit, onDe
             } else {
                 return `
                     <div class="page-break full-page-container clean-page">
-                        <div class="img-full-bleed">
-                            <img src="${src}" />
-                        </div>
+                        <div class="img-full-bleed"><img src="${src}" /></div>
                     </div>`;
             }
         };
@@ -154,7 +148,6 @@ const CustomerDetail = ({ customer, allCustomers = [], currentUser, onEdit, onDe
                     </div>`;
             } else {
                 const objectFit = printOptions.coverFit ? 'contain' : 'cover';
-                // ★ 使用數值控制位置 (0% ~ 100%)
                 const objectPos = `center ${printOptions.coverPos}%`; 
                 coverHtml = `
                     <div class="img-box">
@@ -165,7 +158,6 @@ const CustomerDetail = ({ customer, allCustomers = [], currentUser, onEdit, onDe
         }
 
         let attachmentsHtml = '';
-        // 移除標題參數，改用純淨版
         if (printOptions.cadastral) attachmentsHtml += generateFullPageHtml(customer.imgCadastral, "pdf-cadastral");
         if (printOptions.route) attachmentsHtml += generateFullPageHtml(customer.imgRoute, "pdf-route");
         if (printOptions.location) attachmentsHtml += generateFullPageHtml(customer.imgLocation, "pdf-location");
@@ -175,15 +167,10 @@ const CustomerDetail = ({ customer, allCustomers = [], currentUser, onEdit, onDe
         const displayArea = customer.reqRegion || customer.vendorDistrict || customer.area || '';
         
         let displayAddressShort = "";
-        if (customer.road) {
-            displayAddressShort = customer.road;
-        } else if (customer.landSection) {
-            displayAddressShort = customer.landSection;
-        } else if (customer.address) {
-            displayAddressShort = customer.address.replace(/[0-9]+號.*/, '').replace(/-[0-9]+.*/, '');
-        } else {
-            displayAddressShort = "詳洽專員";
-        }
+        if (customer.road) displayAddressShort = customer.road;
+        else if (customer.landSection) displayAddressShort = customer.landSection;
+        else if (customer.address) displayAddressShort = customer.address.replace(/[0-9]+號.*/, '').replace(/-[0-9]+.*/, '');
+        else displayAddressShort = "詳洽專員";
 
         let specsHtml = '';
         if (isLand) {
@@ -191,22 +178,21 @@ const CustomerDetail = ({ customer, allCustomers = [], currentUser, onEdit, onDe
                 <div class="spec-item"><div class="spec-label">總地坪</div><div class="spec-value">${customer.landPing || '-'} 坪</div></div>
                 <div class="spec-item"><div class="spec-label">使用分區</div><div class="spec-value">${customer.usageZone || '-'}</div></div>
                 <div class="spec-item"><div class="spec-label">單價</div><div class="spec-value">${customer.unitPrice ? customer.unitPrice + ' 萬/坪' : '-'}</div></div>
-                <div class="spec-item mt-2"><div class="spec-label">面寬</div><div class="spec-value">${customer.faceWidth || '-'} 米</div></div>
-                <div class="spec-item mt-2"><div class="spec-label">臨路</div><div class="spec-value">${customer.roadWidth || '-'} 米</div></div>
-                <div class="spec-item mt-2"><div class="spec-label">座向</div><div class="spec-value">${customer.direction || '-'}</div></div>
+                <div class="spec-item mt-1"><div class="spec-label">面寬</div><div class="spec-value">${customer.faceWidth || '-'} 米</div></div>
+                <div class="spec-item mt-1"><div class="spec-label">臨路</div><div class="spec-value">${customer.roadWidth || '-'} 米</div></div>
+                <div class="spec-item mt-1"><div class="spec-label">座向</div><div class="spec-value">${customer.direction || '-'}</div></div>
             `;
         } else {
             specsHtml = `
                 <div class="spec-item"><div class="spec-label">建物坪數</div><div class="spec-value">${customer.buildPing || '-'} 坪</div></div>
                 <div class="spec-item"><div class="spec-label">土地坪數</div><div class="spec-value">${customer.landPing || '-'} 坪</div></div>
                 <div class="spec-item"><div class="spec-label">格局</div><div class="spec-value">${customer.room || '-'}房 ${customer.hall || '-'}廳 ${customer.bath || '-'}衛</div></div>
-                <div class="spec-item mt-2"><div class="spec-label">屋齡</div><div class="spec-value">${customer.age || '-'} 年</div></div>
-                <div class="spec-item mt-2"><div class="spec-label">樓層</div><div class="spec-value">${customer.floor || '-'} / ${customer.totalFloor || '-'} 樓</div></div>
-                <div class="spec-item mt-2"><div class="spec-label">型態</div><div class="spec-value">${customer.propertyType || '電梯大樓'}</div></div>
+                <div class="spec-item mt-1"><div class="spec-label">屋齡</div><div class="spec-value">${customer.age || '-'} 年</div></div>
+                <div class="spec-item mt-1"><div class="spec-label">樓層</div><div class="spec-value">${customer.floor || '-'} / ${customer.totalFloor || '-'} 樓</div></div>
+                <div class="spec-item mt-1"><div class="spec-label">型態</div><div class="spec-value">${customer.propertyType || '電梯大樓'}</div></div>
             `;
         }
 
-        // ★ 計算字體大小 ★
         const calculatedFontSize = getAutoFontSize(customer.nearby);
 
         win.document.write('<html><head><title>' + (customer.caseName || customer.name) + ' - 物件介紹</title>');
@@ -222,143 +208,63 @@ const CustomerDetail = ({ customer, allCustomers = [], currentUser, onEdit, onDe
                 -webkit-print-color-adjust: exact; 
                 print-color-adjust: exact;
             }
-            
             @media print {
                 .no-print { display: none !important; }
                 .pdf-wrapper { border: 1px dashed #d4af37; height: 900px; display: flex; align-items: center; justify-content: center; }
                 .pdf-wrapper:after { content: "此頁為 PDF 文件，請使用網頁上的按鈕單獨列印。"; color: #d4af37; }
                 .pdf-frame { display: none; }
+                body { zoom: 0.92; }
             }
-
-            .control-bar { padding: 8px 12px; background: #0f172a; border-bottom: 1px solid #1e293b; text-align: right; position: sticky; top: 0; z-index: 999; display: flex; justify-content: space-between; align-items: center; color: white; }
-            .btn { padding: 6px 12px; border-radius: 4px; font-weight: bold; cursor: pointer; border: none; margin-left: 10px; font-size: 13px; }
-            .btn-print { background: #d4af37; color: #022c22; }
-            .btn-close { background: #374151; color: white; }
-            .hint { font-size: 11px; color: #94a3b8; }
-
-            .page-container { 
-                width: 210mm; height: 296mm; 
-                padding: 8mm 10mm;
-                box-sizing: border-box; 
-                margin: 0 auto; 
-                display: flex; flex-direction: column; 
-                position: relative; 
-                background: #064e3b;
-                border: 3px double #d4af37;
-                overflow: hidden;
-            }
-            
-            .page-break { 
-                page-break-before: always; 
-                width: 210mm; height: 296mm; 
-                padding: 0; 
-                box-sizing: border-box; 
-                display: flex; flex-direction: column; 
-                background: #064e3b; 
-                margin: 0 auto; 
-                position: relative;
-                overflow: hidden;
-            }
-
-            /* ★★★ 純淨版面：移除所有邊框與背景，只顯示圖片 ★★★ */
-            .clean-page {
-                background: white !important; /* 確保背景是白色 */
-                border: none !important;
-                padding: 0 !important;
-            }
-
-            .watermark-layer {
-                position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%) rotate(-30deg);
-                z-index: 0; pointer-events: none; width: 80%; display: flex; justify-content: center; align-items: center; opacity: 0.15;
-            }
+            .page-container { width: 210mm; height: 296mm; padding: 5mm 8mm; box-sizing: border-box; margin: 0 auto; display: flex; flex-direction: column; position: relative; background: #064e3b; border: 3px double #d4af37; overflow: hidden; }
+            .page-break { page-break-before: always; width: 210mm; height: 296mm; padding: 0; box-sizing: border-box; display: flex; flex-direction: column; background: #064e3b; margin: 0 auto; position: relative; overflow: hidden; }
+            .clean-page { background: white !important; border: none !important; padding: 0 !important; }
+            .watermark-layer { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%) rotate(-30deg); z-index: 0; pointer-events: none; width: 80%; display: flex; justify-content: center; align-items: center; opacity: 0.15; }
             .watermark-layer img { width: 100%; height: auto; }
-
-            .header { border-bottom: 2px double #d4af37; padding-bottom: 8px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: flex-end; position: relative; z-index: 1;}
+            .header { border-bottom: 2px double #d4af37; padding-bottom: 5px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: flex-end; position: relative; z-index: 1; flex-shrink: 0; }
             .header::after { content: '◈'; position: absolute; bottom: -10px; left: 50%; transform: translateX(-50%); color: #d4af37; background: #064e3b; padding: 0 8px; font-size: 12px; }
-            .header h1 { margin: 0; font-size: 26px; color: #d4af37; font-weight: 900; letter-spacing: 2px; }
+            .header h1 { margin: 0; font-size: 24px; color: #d4af37; font-weight: 900; letter-spacing: 2px; }
             .header span { font-size: 12px; font-weight: bold; color: #a7f3d0; text-transform: uppercase; letter-spacing: 2px; }
-            
             .header-small { border-bottom: 1px dashed #d4af37; padding-bottom: 5px; margin-bottom: 15px; font-weight: bold; color: #d4af37; position: relative; z-index: 1;}
-
-            .img-box { margin-bottom: 10px; border: 2px solid #d4af37; border-radius: 4px; overflow: hidden; position: relative; z-index: 1; }
+            .img-box { margin-bottom: 8px; border: 2px solid #d4af37; border-radius: 4px; overflow: hidden; position: relative; z-index: 1; flex-shrink: 0; }
             .img-title { background: #d4af37; color: #022c22; padding: 4px 8px; font-size: 12px; font-weight: bold; }
-            .img-box img { width: 100%; height: 280px; } 
-            .img-box iframe { width: 100%; height: 280px !important; border: none; }
-
+            .img-box img { width: 100%; height: 260px; } 
+            .img-box iframe { width: 100%; height: 260px !important; border: none; }
             .pdf-wrapper { width: 100%; flex: 1; border: 2px solid #d4af37; border-radius: 4px; overflow: hidden; display: flex; flex-direction: column; position: relative; z-index: 1; }
             .pdf-full-wrapper { width: 100%; height: 100%; display: flex; flex-direction: column; }
             .pdf-controls { background: #fffbeb; padding: 5px; text-align: center; border-bottom: 1px solid #d4af37; display: flex; justify-content: space-between; align-items: center; color: #333;}
             .pdf-controls button { background: #064e3b; color: white; border: none; padding: 3px 8px; border-radius: 4px; cursor: pointer; font-size: 11px; }
             .pdf-alert { font-size: 11px; color: #b91c1c; font-weight: bold; }
             .pdf-frame { width: 100%; height: 100%; border: none; background: white; }
-
-            .img-full-bleed { 
-                width: 100%; height: 100%; 
-                display: flex; align-items: center; justify-content: center; 
-                background: white; /* 純白底，適合印表機 */
-            }
-            .img-full-bleed img { 
-                width: 100%; height: 100%; 
-                object-fit: contain; 
-            }
-
-            .title-section { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 10px; position: relative; z-index: 1; }
+            .img-full-bleed { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; background: white; }
+            .img-full-bleed img { width: 100%; height: 100%; object-fit: contain; }
+            .title-section { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 8px; position: relative; z-index: 1; flex-shrink: 0; }
             .title-info { width: 60%; }
-            .case-name { font-size: 30px; font-weight: 900; color: #ffffff; margin: 0 0 5px 0; line-height: 1.1; }
+            .case-name { font-size: 28px; font-weight: 900; color: #ffffff; margin: 0 0 4px 0; line-height: 1.1; }
             .address { font-size: 14px; color: #d4af37; font-weight: bold; display: flex; align-items: center; gap: 5px; }
             .price-info { width: 40%; text-align: right; }
             .price-val { font-size: 52px; font-weight: 900; color: #d4af37; line-height: 1; font-family: 'Arial Black', sans-serif; }
             .price-unit { font-size: 20px; color: #fcd34d; }
-
-            .specs-box { 
-                background: rgba(255,255,255,0.05); 
-                border: 1px solid rgba(212, 175, 55, 0.4); 
-                border-radius: 8px; padding: 15px; margin-bottom: 10px; position: relative; z-index: 1; 
-            }
-            .specs-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; column-gap: 20px; row-gap: 12px; }
-            .spec-item { border-bottom: 1px dashed rgba(212, 175, 55, 0.3); padding-bottom: 3px; }
-            .spec-label { font-size: 16px; color: #9ca3af; text-transform: uppercase; margin-bottom: 2px; }
-            .spec-value { font-size: 26px; font-weight: bold; color: #ffffff; }
-
-            .highlight-box { 
-                background: rgba(212, 175, 55, 0.05); 
-                border-left: 4px solid #d4af37; 
-                padding: 12px 15px; border-radius: 0 8px 8px 0; 
-                margin-bottom: 15px; 
-                position: relative; z-index: 1; 
-                display: flex; flex-direction: column;
-                overflow: hidden;
-                flex-grow: 1;
-            }
+            .specs-box { background: rgba(255,255,255,0.05); border: 1px solid rgba(212, 175, 55, 0.4); border-radius: 8px; padding: 12px; margin-bottom: 8px; position: relative; z-index: 1; flex-shrink: 0; }
+            .specs-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; column-gap: 20px; row-gap: 10px; }
+            .spec-item { border-bottom: 1px dashed rgba(212, 175, 55, 0.3); padding-bottom: 2px; }
+            .spec-label { font-size: 14px; color: #9ca3af; text-transform: uppercase; margin-bottom: 2px; }
+            .spec-value { font-size: 22px; font-weight: bold; color: #ffffff; }
+            .highlight-box { background: rgba(212, 175, 55, 0.05); border-left: 4px solid #d4af37; padding: 10px 15px; border-radius: 0 8px 8px 0; margin-bottom: 10px; position: relative; z-index: 1; flex: 1; min-height: 50px; display: flex; flex-direction: column; overflow: hidden; }
             .highlight-title { color: #d4af37; font-weight: bold; margin-bottom: 5px; font-size: 18px; letter-spacing: 1px; display: flex; align-items: center; gap: 5px; flex-shrink: 0; }
-            
-            /* ★★★ 物件優勢 - 應用計算後的字體大小 ★★★ */
-            .highlight-content {
-                color: #e5e7eb; line-height: 1.5; 
-                font-size: ${calculatedFontSize}; /* 自動縮放 */
-                font-weight: bold;
-                white-space: pre-wrap; 
-                word-wrap: break-word;
-            }
-
-            .footer { 
-                background: #022c22; 
-                color: white; padding: 12px 20px; border-radius: 10px; display: flex; justify-content: space-between; align-items: center; 
-                margin-top: auto; 
-                border-top: 2px double #d4af37; 
-                position: relative; z-index: 1; box-shadow: none; flex-shrink: 0;
-            }
-            .agent-info h3 { margin: 0; font-size: 28px; font-weight: 900; color: #ffffff; }
-            .agent-info div { color: #d4af37; font-size: 13px; margin-top: 2px; letter-spacing: 2px; text-transform: uppercase; }
+            .highlight-content { color: #e5e7eb; line-height: 1.5; font-size: ${calculatedFontSize}; font-weight: bold; white-space: pre-wrap; word-wrap: break-word; flex: 1; overflow: hidden; }
+            .footer { background: #022c22; color: white; padding: 10px 20px; border-radius: 10px; display: flex; justify-content: space-between; align-items: center; margin-top: 0; border-top: 2px double #d4af37; position: relative; z-index: 1; box-shadow: none; flex-shrink: 0; }
+            .agent-info h3 { margin: 0; font-size: 24px; font-weight: 900; color: #ffffff; }
+            .agent-info div { color: #d4af37; font-size: 12px; margin-top: 2px; letter-spacing: 2px; text-transform: uppercase; }
             .contact-info { text-align: right; }
             .phone { font-size: 56px; font-weight: 900; color: #d4af37 !important; font-family: 'Arial Black', sans-serif; line-height: 1; }
             .phone a { color: #d4af37 !important; text-decoration: none !important; }
-            .line-id { color: #a7f3d0; font-size: 16px; margin-top: 4px; font-weight: bold; }
+            .line-id { color: #a7f3d0; font-size: 14px; margin-top: 4px; font-weight: bold; }
+            .control-bar { display: none !important; } /* Print時隱藏控制列 */
         `);
         win.document.write('</style></head><body>');
         
         win.document.write(`
-            <div class="control-bar no-print">
+            <div class="control-bar no-print" style="display:flex !important;">
                 <span class="hint">全功能修復版：圖資滿版無邊框、字體自動縮放。</span>
                 <div>
                     <button class="btn btn-print" onclick="window.print()">🖨️ 列印 / 另存 PDF</button>
@@ -367,7 +273,6 @@ const CustomerDetail = ({ customer, allCustomers = [], currentUser, onEdit, onDe
             </div>
         `);
 
-        // --- 頁面 1：基本資料 + 封面 ---
         win.document.write(`
             <div class="page-container">
                 ${watermarkImg ? `<div class="watermark-layer"><img src="${watermarkImg}" /></div>` : ''}
@@ -380,7 +285,7 @@ const CustomerDetail = ({ customer, allCustomers = [], currentUser, onEdit, onDe
                 <div class="specs-box"><div class="specs-grid">${specsHtml}</div></div>
                 ${customer.nearby ? 
                     `<div class="highlight-box"><div class="highlight-title">🌟 物件優勢</div><div class="highlight-content">${customer.nearby}</div></div>` : 
-                    `<div style="flex-grow:1; margin-bottom: 15px;"></div>`} 
+                    `<div style="flex:1;"></div>`} 
                 <div class="footer">
                     <div class="agent-info"><h3>${agentName}</h3><div>誠信服務 • 專業熱忱</div></div>
                     <div class="contact-info"><div class="phone">☎ ${agentPhone}</div>${agentLine ? `<div class="line-id">LINE ID: ${agentLine}</div>` : ''}</div>
@@ -388,7 +293,6 @@ const CustomerDetail = ({ customer, allCustomers = [], currentUser, onEdit, onDe
             </div>
         `);
 
-        // --- 頁面 2+ (獨立圖資 - 純淨模式) ---
         win.document.write(attachmentsHtml);
 
         win.document.write(`
@@ -568,24 +472,31 @@ const CustomerDetail = ({ customer, allCustomers = [], currentUser, onEdit, onDe
                     </div>
                 )}
 
+                {/* 智慧配對：案件顯示名稱及區域 (★加入此更新★) */}
                 {activeTab === 'match' && (
                     <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4">
                         <div className="bg-purple-50 dark:bg-purple-900/20 p-4 rounded-xl text-purple-800 dark:text-purple-200 text-sm mb-4"><h3 className="font-bold flex items-center gap-2 mb-1"><Target className="w-4 h-4"/> 配對條件 ({isSeller ? '本案條件' : '需求條件'})</h3><ul className="list-disc list-inside opacity-80 text-xs">{isSeller ? (<><li>本案區域：{customer.reqRegion || customer.assignedRegion}</li><li>本案類型：{customer.propertyType || '未指定'}</li><li>本案坪數：地 {customer.landPing} / 建 {customer.buildPing}</li></>) : (<><li>需求區域：{customer.reqRegion || '不限'} (含歸檔區)</li><li>需求類型：{customer.targetPropertyType || '不限'}</li><li>需求坪數：{customer.minPing || 0} ~ {customer.maxPing || '不限'} 坪</li></>)}</ul></div>
                         {matchedObjects.length === 0 ? (<div className="text-center py-20 opacity-50"><p>{isSeller ? '目前沒有符合需求的買方' : '目前沒有符合條件的物件'}</p></div>) : (<div className="grid grid-cols-1 gap-3">{matchedObjects.map(obj => (<div key={obj.id} className={`flex justify-between p-4 rounded-xl border ${darkMode ? 'bg-slate-900 border-slate-700' : 'bg-white border-gray-200'} hover:border-purple-400 transition-colors`}>
                             <div>
-                                <div className="font-bold flex items-center gap-2">
+                                <div className="font-bold flex flex-col gap-1">
                                     {['賣方', '出租', '出租方'].includes(obj.category) ? (
                                         <>
-                                            <span>{obj.caseName || obj.name}</span>
-                                            <span className="text-xs font-normal text-gray-500 bg-gray-100 dark:bg-slate-800 px-2 py-0.5 rounded flex items-center">
-                                                <MapPin className="w-3 h-3 mr-1"/>
-                                                {obj.city}{obj.reqRegion || obj.assignedRegion}
-                                            </span>
+                                            <span className="text-lg">{obj.caseName || obj.name}</span>
+                                            <div className="flex flex-wrap gap-2 text-xs font-normal text-gray-500 dark:text-gray-400">
+                                                <span className="bg-gray-100 dark:bg-slate-800 px-2 py-0.5 rounded flex items-center gap-1"><MapPin className="w-3 h-3"/> {obj.city}{obj.reqRegion || obj.assignedRegion}</span>
+                                                <span className="bg-gray-100 dark:bg-slate-800 px-2 py-0.5 rounded flex items-center gap-1"><User className="w-3 h-3"/> 屋主: {obj.name}</span>
+                                                <span className="bg-gray-100 dark:bg-slate-800 px-2 py-0.5 rounded flex items-center gap-1"><Briefcase className="w-3 h-3"/> 承辦: {obj.assignedAgent || obj.ownerName}</span>
+                                            </div>
                                         </>
                                     ) : (
-                                        <span>{obj.name}</span>
+                                        <>
+                                            <span className="text-lg">{obj.name}</span>
+                                            <div className="flex flex-wrap gap-2 text-xs font-normal text-gray-500 dark:text-gray-400">
+                                                <span className="bg-gray-100 dark:bg-slate-800 px-2 py-0.5 rounded flex items-center gap-1"><MapPin className="w-3 h-3"/> {obj.reqRegion || '不限'}</span>
+                                                <span className="bg-gray-100 dark:bg-slate-800 px-2 py-0.5 rounded flex items-center gap-1"><Briefcase className="w-3 h-3"/> 承辦: {obj.ownerName}</span>
+                                            </div>
+                                        </>
                                     )}
-                                    <span className="text-xs bg-gray-100 dark:bg-slate-800 px-1 rounded flex items-center gap-1"><Briefcase className="w-3 h-3"/> {obj.ownerName}</span>
                                 </div>
                             </div>
                         </div>))}</div>)}
@@ -606,7 +517,7 @@ const CustomerDetail = ({ customer, allCustomers = [], currentUser, onEdit, onDe
                             {watermarkImg && <div className="mt-2 text-xs text-green-600 font-bold flex items-center gap-1"><CheckCircle className="w-3 h-3"/> 已載入浮水印</div>}
                         </div>
 
-                        {/* 封面調整區 - 改為滑桿 */}
+                        {/* 封面調整區 - 滑桿 */}
                         <div className="mb-4 border-b pb-4">
                             <label className="flex items-center gap-2 p-2 border border-blue-200 bg-blue-50 rounded-lg cursor-pointer mb-2">
                                 <input type="checkbox" checked={printOptions.coverFit} onChange={e => setPrintOptions({...printOptions, coverFit: e.target.checked})} className="w-4 h-4 text-blue-600"/>
