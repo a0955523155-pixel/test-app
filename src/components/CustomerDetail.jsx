@@ -77,7 +77,7 @@ const CustomerDetail = ({ customer, allCustomers = [], currentUser, onEdit, onDe
         }
     };
 
-    // ★★★ 列印執行邏輯 (修正圖資黑底問題) ★★★
+    // 列印執行邏輯
     const executePrint = () => {
         const win = window.open('', '', 'height=800,width=1200');
         
@@ -252,10 +252,10 @@ const CustomerDetail = ({ customer, allCustomers = [], currentUser, onEdit, onDe
             .pdf-alert { font-size: 11px; color: #b91c1c; font-weight: bold; }
             .pdf-frame { width: 100%; height: 100%; border: none; background: white; }
 
-            /* ★★★ 移除圖片背景色 (Background)，解決黑邊問題 ★★★ */
-            .img-full-page { flex: 1; display: flex; align-items: center; justify-content: center; position: relative; z-index: 1; border: 2px solid #d4af37; border-radius: 4px; margin-top: 10px; }
-            .img-full-page img { max-width: 100%; max-height: 260mm; object-fit: cover; } /* 改為 cover 填滿 */
+            .img-full-page { flex: 1; display: flex; align-items: center; justify-content: center; position: relative; z-index: 1; border: 2px solid #d4af37; border-radius: 4px; margin-top: 10px; background: #011a14; }
+            .img-full-page img { max-width: 100%; max-height: 260mm; object-fit: contain; }
 
+            /* Title Section */
             .title-section { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 10px; position: relative; z-index: 1; }
             .title-info { width: 60%; }
             .case-name { font-size: 30px; font-weight: 900; color: #ffffff; margin: 0 0 5px 0; line-height: 1.1; }
@@ -513,17 +513,28 @@ const CustomerDetail = ({ customer, allCustomers = [], currentUser, onEdit, onDe
                     </div>
                 )}
 
-                {activeTab === 'notes' && (
-                    <div className="space-y-4">
-                        <form onSubmit={handleAddNoteSubmit} className="flex gap-2 mb-4"><input value={noteContent} onChange={e => setNoteContent(e.target.value)} placeholder="輸入回報內容..." className={`flex-1 px-4 py-3 rounded-xl border outline-none ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white'}`} /><button type="submit" className="bg-blue-600 text-white px-4 py-2 rounded-xl font-bold"><Plus className="w-5 h-5"/></button></form>
-                        <div className="space-y-3">{(customer.notes || []).length === 0 ? <p className="text-center text-gray-400 py-10">尚無紀錄</p> : [...customer.notes].reverse().map((note, idx) => (<div key={idx} className={`p-4 rounded-xl border ${darkMode ? 'bg-slate-900 border-slate-700' : 'bg-white border-gray-200'}`}><div className="flex justify-between mb-2"><span className="text-xs font-bold text-blue-500">{note.author}</span><span className="text-xs text-gray-400">{note.date}</span></div><p className="text-sm whitespace-pre-wrap">{note.content}</p><div className="flex justify-end mt-2"><button onClick={() => { if(confirm("刪除此紀錄？")) onDeleteNote(customer.id, note); }} className="text-gray-300 hover:text-red-500"><Trash2 className="w-3 h-3"/></button></div></div>))}</div>
-                    </div>
-                )}
-
+                {/* 智慧配對區塊 - 修改後顯示 案件名稱及區域 */}
                 {activeTab === 'match' && (
                     <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4">
                         <div className="bg-purple-50 dark:bg-purple-900/20 p-4 rounded-xl text-purple-800 dark:text-purple-200 text-sm mb-4"><h3 className="font-bold flex items-center gap-2 mb-1"><Target className="w-4 h-4"/> 配對條件 ({isSeller ? '本案條件' : '需求條件'})</h3><ul className="list-disc list-inside opacity-80 text-xs">{isSeller ? (<><li>本案區域：{customer.reqRegion || customer.assignedRegion}</li><li>本案類型：{customer.propertyType || '未指定'}</li><li>本案坪數：地 {customer.landPing} / 建 {customer.buildPing}</li></>) : (<><li>需求區域：{customer.reqRegion || '不限'} (含歸檔區)</li><li>需求類型：{customer.targetPropertyType || '不限'}</li><li>需求坪數：{customer.minPing || 0} ~ {customer.maxPing || '不限'} 坪</li></>)}</ul></div>
-                        {matchedObjects.length === 0 ? (<div className="text-center py-20 opacity-50"><p>{isSeller ? '目前沒有符合需求的買方' : '目前沒有符合條件的物件'}</p></div>) : (<div className="grid grid-cols-1 gap-3">{matchedObjects.map(obj => (<div key={obj.id} className={`flex justify-between p-4 rounded-xl border ${darkMode ? 'bg-slate-900 border-slate-700' : 'bg-white border-gray-200'} hover:border-purple-400 transition-colors`}><div><div className="font-bold flex items-center gap-2">{obj.name || obj.caseName} <span className="text-xs bg-gray-100 dark:bg-slate-800 px-1 rounded flex items-center gap-1"><Briefcase className="w-3 h-3"/> {obj.ownerName}</span></div></div></div>))}</div>)}
+                        {matchedObjects.length === 0 ? (<div className="text-center py-20 opacity-50"><p>{isSeller ? '目前沒有符合需求的買方' : '目前沒有符合條件的物件'}</p></div>) : (<div className="grid grid-cols-1 gap-3">{matchedObjects.map(obj => (<div key={obj.id} className={`flex justify-between p-4 rounded-xl border ${darkMode ? 'bg-slate-900 border-slate-700' : 'bg-white border-gray-200'} hover:border-purple-400 transition-colors`}>
+                            <div>
+                                <div className="font-bold flex items-center gap-2">
+                                    {['賣方', '出租', '出租方'].includes(obj.category) ? (
+                                        <>
+                                            <span>{obj.caseName || obj.name}</span>
+                                            <span className="text-xs font-normal text-gray-500 bg-gray-100 dark:bg-slate-800 px-2 py-0.5 rounded flex items-center">
+                                                <MapPin className="w-3 h-3 mr-1"/>
+                                                {obj.city}{obj.reqRegion || obj.assignedRegion}
+                                            </span>
+                                        </>
+                                    ) : (
+                                        <span>{obj.name}</span>
+                                    )}
+                                    <span className="text-xs bg-gray-100 dark:bg-slate-800 px-1 rounded flex items-center gap-1"><Briefcase className="w-3 h-3"/> {obj.ownerName}</span>
+                                </div>
+                            </div>
+                        </div>))}</div>)}
                     </div>
                 )}
             </div>

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
-  Loader2, Moon, Sun, LogOut, LayoutDashboard, List, Radio, X, MapPin, Bell, CheckCircle, AlertTriangle, BellRing, UserCircle, Settings, Wrench, Phone, Filter, ChevronDown, ChevronUp, User
+  Loader2, Moon, Sun, LogOut, LayoutDashboard, List, Radio, X, MapPin, Bell, CheckCircle, AlertTriangle, BellRing, UserCircle, Settings, Wrench, Phone, Filter, ChevronDown, ChevronUp, User, Calendar, Tag, Briefcase, Users
 } from 'lucide-react';
 
 import { initializeApp, getApps, getApp } from 'firebase/app';
@@ -23,7 +23,6 @@ import CustomerDetail from './components/CustomerDetail';
 import ClientsView from './components/ClientsView';
 import DashboardView from './components/DashboardView';
 import VendorsView from './components/VendorsView';
-import BroadcastOverlay from './components/BroadcastOverlay'; 
 import Marquee from './components/Marquee';
 
 const firebaseConfig = {
@@ -48,6 +47,121 @@ const NotificationModal = ({ notifications, onClose, onQuickUpdate }) => {
             <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden border-2 border-red-500">
                 <div className="bg-red-500 p-4 text-white flex justify-between items-center"><h3 className="font-bold text-lg flex items-center gap-2"><BellRing className="w-6 h-6"/> 待辦與聯繫提醒 ({notifications.length})</h3><button onClick={onClose} className="p-1 hover:bg-red-600 rounded-full"><X/></button></div>
                 <div className="p-4 max-h-[60vh] overflow-y-auto space-y-3">{notifications.map((item, idx) => (<div key={idx} className="flex justify-between items-start p-3 bg-gray-50 dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700"><div><h4 className="font-bold text-gray-800 dark:text-white flex items-center gap-2">{item.type === 'contact' ? `📞 [${item.level}級] 需聯繫客戶` : (item.type === 'commission' ? '📄 委託即將到期' : '💰 代書款項期限')}</h4><div className="text-sm text-gray-600 dark:text-gray-400 mt-1 font-bold">{item.name} <span className="font-normal text-xs">({item.category})</span></div>{item.type === 'payment' && <div className="text-xs text-blue-500 font-bold">項目: {item.itemName}</div>}{item.type === 'contact' ? (<div className="text-xs text-red-500 mt-1 font-bold">上次聯繫：{item.lastDate} (已過 {item.days} 天)</div>) : (<div className="text-xs text-red-500 mt-1 font-bold">期限：{item.date} (剩 {item.days} 天)</div>)}</div><button onClick={() => { const msg = item.type === 'contact' ? "確認已聯繫？(將更新最後聯絡時間為今天)" : "確認標記為完成？"; if(confirm(msg)) { onQuickUpdate(item); } }} className="px-3 py-1.5 bg-green-100 text-green-700 hover:bg-green-200 rounded-lg text-xs font-bold flex items-center gap-1 transition-colors"><CheckCircle className="w-3 h-3"/> {item.type === 'contact' ? '已聯繫' : '完成'}</button></div>))}</div>
+            </div>
+        </div>
+    );
+};
+
+// ★★★ 廣播覆蓋層 (更新：加入次要專員) ★★★
+const BroadcastOverlay = ({ data, onClose, isPresenter }) => {
+    if (!data) return null;
+    const isCase = ['賣方', '出租', '出租方'].includes(data.category);
+    const isRental = data.category.includes('出租');
+    
+    // 日期格式化 helper
+    const formatDate = (val) => {
+        if (!val) return '無紀錄';
+        if (typeof val === 'string') return val.split('T')[0];
+        if (val.seconds) return new Date(val.seconds * 1000).toISOString().split('T')[0];
+        return '格式錯誤';
+    };
+
+    const handleClose = () => { if (isPresenter) { if(confirm("您是廣播發起人，關閉視窗將結束所有人的廣播，確定嗎？")) onClose(true); } else { onClose(false); } };
+    
+    return (
+        <div className="fixed inset-0 z-[100] bg-black/90 text-white flex flex-col items-center justify-center p-2 sm:p-4 overflow-hidden animate-in fade-in zoom-in duration-300 backdrop-blur-md">
+            <button onClick={handleClose} className="fixed top-4 right-4 p-2 bg-white/10 hover:bg-white/30 rounded-full transition-colors z-[110] border border-white/20"><X className="w-8 h-8"/></button>
+            
+            <div className="bg-slate-900 border border-slate-700 rounded-3xl w-full max-w-6xl shadow-2xl relative flex flex-col max-h-[95vh] overflow-hidden">
+                {/* 內容區域 - 設定 overflow-y-auto 確保內部可滾動 */}
+                <div className="flex-1 overflow-y-auto p-6 sm:p-8 custom-scrollbar">
+                    <div className="flex flex-col gap-6">
+                        
+                        {/* 1. 頭部區塊 */}
+                        <div className="flex flex-col md:flex-row items-start gap-6 border-b border-gray-700 pb-6">
+                            <div className="flex-shrink-0 w-full md:w-auto flex justify-center">
+                                {data.photoUrl ? (
+                                    <img src={data.photoUrl} alt="Case" className="w-48 h-48 sm:w-64 sm:h-48 object-cover rounded-xl shadow-lg border border-gray-600" />
+                                ) : (
+                                    <div className={`w-32 h-32 sm:w-48 sm:h-48 rounded-2xl flex items-center justify-center text-6xl font-bold shadow-lg ${isCase ? 'bg-orange-600' : 'bg-blue-600'}`}>
+                                        {data.name?.[0]}
+                                    </div>
+                                )}
+                            </div>
+                            
+                            <div className="flex-1 w-full text-center md:text-left">
+                                <div className="flex flex-wrap items-center justify-center md:justify-start gap-3 mb-3">
+                                    <span className={`px-4 py-1.5 rounded-full text-base font-bold ${isCase ? 'bg-orange-500/20 text-orange-400' : 'bg-blue-500/20 text-blue-400'}`}>{data.category}</span>
+                                    <span className="bg-gray-700 px-4 py-1.5 rounded-full text-base border border-gray-600 font-bold">{data.status}</span>
+                                </div>
+                                <h1 className="text-3xl sm:text-5xl font-black tracking-tight leading-tight mb-3 text-white break-words">
+                                    {isCase ? (data.caseName || data.name) : data.name}
+                                </h1>
+                                <div className="text-xl sm:text-2xl text-gray-300 font-medium flex items-center justify-center md:justify-start gap-2 mb-4">
+                                    <MapPin className="w-6 h-6 text-gray-500 flex-shrink-0"/>
+                                    {isCase ? (data.landNo || data.reqRegion) : data.reqRegion}
+                                </div>
+
+                                <div className="inline-block bg-slate-800/80 px-6 py-3 rounded-2xl border border-slate-600">
+                                    <div className="text-gray-400 text-sm font-bold mb-1 text-center md:text-left">{isCase ? (isRental ? '租金' : '開價') : '預算'}</div>
+                                    <div className="text-4xl sm:text-5xl font-black text-green-400 font-mono tracking-tighter">
+                                        {isCase ? data.totalPrice : data.value?.toLocaleString()} 
+                                        <span className="text-xl sm:text-2xl ml-2 text-gray-500">{isCase && isRental ? '元' : '萬'}</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* 2. 資訊網格 (加入次要專員) */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                            <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700">
+                                <div className="text-gray-500 text-xs mb-1 flex items-center gap-1"><Calendar className="w-3 h-3"/> 建檔日期</div>
+                                <div className="text-lg font-bold text-white">{formatDate(data.createdAt)}</div>
+                            </div>
+                            <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700">
+                                <div className="text-gray-500 text-xs mb-1 flex items-center gap-1"><Calendar className="w-3 h-3"/> 最新回報</div>
+                                <div className="text-lg font-bold text-yellow-400">{data.lastContact || '無'}</div>
+                            </div>
+                            
+                            {/* ★★★ 次要專員 ★★★ */}
+                            {data.subAgent && (
+                                <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700">
+                                    <div className="text-gray-500 text-xs mb-1 flex items-center gap-1"><Users className="w-3 h-3"/> 次要專員</div>
+                                    <div className="text-lg font-bold text-pink-300">{data.subAgent}</div>
+                                </div>
+                            )}
+
+                            {data.industry && (
+                                <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700">
+                                    <div className="text-gray-500 text-xs mb-1 flex items-center gap-1"><Briefcase className="w-3 h-3"/> 行業類別</div>
+                                    <div className="text-lg font-bold text-blue-300">{data.industry}</div>
+                                </div>
+                            )}
+                            {data.serviceItems && (
+                                <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700 sm:col-span-2 lg:col-span-1">
+                                    <div className="text-gray-500 text-xs mb-1 flex items-center gap-1"><Tag className="w-3 h-3"/> 服務項目</div>
+                                    <div className="text-lg font-bold text-green-300 truncate">{data.serviceItems}</div>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* 3. 備註區塊 */}
+                        <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700 flex-1">
+                            <h3 className="text-xl font-bold text-gray-400 mb-4 border-b border-gray-600 pb-2 flex items-center gap-2">
+                                <LayoutDashboard className="w-5 h-5"/> 詳細備註
+                            </h3>
+                            <div className="whitespace-pre-wrap leading-relaxed text-gray-200 text-2xl font-medium">
+                                {data.remarks || "無詳細備註"}
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+                
+                {/* 底部 */}
+                <div className="bg-slate-950 p-3 text-center text-slate-600 text-xs font-mono uppercase tracking-widest border-t border-slate-800 flex-shrink-0">
+                    Broadcast Mode • GreenShoot Team
+                </div>
             </div>
         </div>
     );
@@ -112,7 +226,7 @@ export default function App() {
   const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'super_admin';
   const isSuperAdmin = currentUser?.role === 'super_admin';
 
-  const [activeTab, setActiveTab] = useState('clients'); // clients, vendors, dashboard
+  const [activeTab, setActiveTab] = useState('clients');
   const [selectedCustomer, setSelectedCustomer] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   
@@ -120,7 +234,6 @@ export default function App() {
   const [myBroadcastStatus, setMyBroadcastStatus] = useState(false);
   const [notifications, setNotifications] = useState([]);
   const [systemAlerts, setSystemAlerts] = useState([]); 
-
   const [companyProjects, setCompanyProjects] = useState({});
   const [projectAds, setProjectAds] = useState({}); 
   const [adWalls, setAdWalls] = useState([]); 
@@ -145,8 +258,6 @@ export default function App() {
   const [myProfileData, setMyProfileData] = useState({});
 
   const [dashTimeFrame, setDashTimeFrame] = useState('month'); 
-
-  // ★★★ 狀態記憶：從 localStorage 讀取 (預設為 'all') ★★★
   const [listMode, setListMode] = useState(() => localStorage.getItem('crm_list_mode') || 'all');
   
   const [listYear, setListYear] = useState(new Date().getFullYear());
@@ -165,7 +276,6 @@ export default function App() {
     try { return localStorage.getItem('crm-dark-mode') === 'true'; } catch { return false; }
   });
 
-  // ★★★ 監聽並保存 listMode ★★★
   useEffect(() => {
       localStorage.setItem('crm_list_mode', listMode);
   }, [listMode]);
