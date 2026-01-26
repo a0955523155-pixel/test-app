@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
-  Loader2, Moon, Sun, LogOut, LayoutDashboard, List, Radio, X, MapPin, Bell, CheckCircle, AlertTriangle, BellRing, UserCircle, Settings, Wrench, Phone, Filter, ChevronDown, ChevronUp, User, Calendar, Tag, Briefcase, Users
+  Loader2, Moon, Sun, LogOut, LayoutDashboard, List, Radio, X, MapPin, Bell, CheckCircle, AlertTriangle, BellRing, UserCircle, Settings, Wrench, Phone, Filter, ChevronDown, ChevronUp, User, Calendar, Tag, Briefcase, Users, StickyNote
 } from 'lucide-react';
 
 import { initializeApp, getApps, getApp } from 'firebase/app';
@@ -52,23 +52,14 @@ const NotificationModal = ({ notifications, onClose, onQuickUpdate }) => {
     );
 };
 
-// ★★★ 廣播覆蓋層 (修正：狀態中文化) ★★★
+// --- 廣播覆蓋層 ---
 const BroadcastOverlay = ({ data, onClose, isPresenter }) => {
     if (!data) return null;
     const isCase = ['賣方', '出租', '出租方'].includes(data.category);
     const isRental = data.category.includes('出租');
     
-    // 狀態對照表
-    const statusMap = { 
-        'new': '新案件', 
-        'contacting': '洽談中', 
-        'commissioned': '已委託', 
-        'offer': '已收斡', 
-        'closed': '已成交', 
-        'lost': '已無效' 
-    };
+    const statusMap = { 'new': '新案件', 'contacting': '洽談中', 'commissioned': '已委託', 'offer': '已收斡', 'closed': '已成交', 'lost': '已無效' };
     
-    // 日期格式化 helper
     const formatDate = (val) => {
         if (!val) return '無紀錄';
         if (typeof val === 'string') return val.split('T')[0];
@@ -83,148 +74,65 @@ const BroadcastOverlay = ({ data, onClose, isPresenter }) => {
             <button onClick={handleClose} className="fixed top-4 right-4 p-2 bg-white/10 hover:bg-white/30 rounded-full transition-colors z-[110] border border-white/20"><X className="w-8 h-8"/></button>
             
             <div className="bg-slate-900 border border-slate-700 rounded-3xl w-full max-w-6xl shadow-2xl relative flex flex-col max-h-[95vh] overflow-hidden">
-                {/* 內容區域 - 設定 overflow-y-auto 確保內部可滾動 */}
                 <div className="flex-1 overflow-y-auto p-6 sm:p-8 custom-scrollbar">
                     <div className="flex flex-col gap-6">
-                        
-                        {/* 1. 頭部區塊 */}
                         <div className="flex flex-col md:flex-row items-start gap-6 border-b border-gray-700 pb-6">
                             <div className="flex-shrink-0 w-full md:w-auto flex justify-center">
-                                {data.photoUrl ? (
-                                    <img src={data.photoUrl} alt="Case" className="w-48 h-48 sm:w-64 sm:h-48 object-cover rounded-xl shadow-lg border border-gray-600" />
-                                ) : (
-                                    <div className={`w-32 h-32 sm:w-48 sm:h-48 rounded-2xl flex items-center justify-center text-6xl font-bold shadow-lg ${isCase ? 'bg-orange-600' : 'bg-blue-600'}`}>
-                                        {data.name?.[0]}
-                                    </div>
-                                )}
+                                {data.photoUrl ? ( <img src={data.photoUrl} alt="Case" className="w-48 h-48 sm:w-64 sm:h-48 object-cover rounded-xl shadow-lg border border-gray-600" /> ) : ( <div className={`w-32 h-32 sm:w-48 sm:h-48 rounded-2xl flex items-center justify-center text-6xl font-bold shadow-lg ${isCase ? 'bg-orange-600' : 'bg-blue-600'}`}>{data.name?.[0]}</div> )}
                             </div>
-                            
                             <div className="flex-1 w-full text-center md:text-left">
                                 <div className="flex flex-wrap items-center justify-center md:justify-start gap-3 mb-3">
                                     <span className={`px-4 py-1.5 rounded-full text-base font-bold ${isCase ? 'bg-orange-500/20 text-orange-400' : 'bg-blue-500/20 text-blue-400'}`}>{data.category}</span>
-                                    {/* ★★★ 修正：使用中文狀態 ★★★ */}
                                     <span className="bg-gray-700 px-4 py-1.5 rounded-full text-base border border-gray-600 font-bold">{statusMap[data.status] || data.status}</span>
                                 </div>
-                                <h1 className="text-3xl sm:text-5xl font-black tracking-tight leading-tight mb-3 text-white break-words">
-                                    {isCase ? (data.caseName || data.name) : data.name}
-                                </h1>
-                                <div className="text-xl sm:text-2xl text-gray-300 font-medium flex items-center justify-center md:justify-start gap-2 mb-4">
-                                    <MapPin className="w-6 h-6 text-gray-500 flex-shrink-0"/>
-                                    {isCase ? (data.landNo || data.reqRegion) : data.reqRegion}
-                                </div>
-
-                                <div className="inline-block bg-slate-800/80 px-6 py-3 rounded-2xl border border-slate-600">
-                                    <div className="text-gray-400 text-sm font-bold mb-1 text-center md:text-left">{isCase ? (isRental ? '租金' : '開價') : '預算'}</div>
-                                    <div className="text-4xl sm:text-5xl font-black text-green-400 font-mono tracking-tighter">
-                                        {isCase ? data.totalPrice : data.value?.toLocaleString()} 
-                                        <span className="text-xl sm:text-2xl ml-2 text-gray-500">{isCase && isRental ? '元' : '萬'}</span>
-                                    </div>
-                                </div>
+                                <h1 className="text-3xl sm:text-5xl font-black tracking-tight leading-tight mb-3 text-white break-words">{isCase ? (data.caseName || data.name) : data.name}</h1>
+                                <div className="text-xl sm:text-2xl text-gray-300 font-medium flex items-center justify-center md:justify-start gap-2 mb-4"><MapPin className="w-6 h-6 text-gray-500 flex-shrink-0"/>{isCase ? (data.landNo || data.reqRegion) : data.reqRegion}</div>
+                                <div className="inline-block bg-slate-800/80 px-6 py-3 rounded-2xl border border-slate-600"><div className="text-gray-400 text-sm font-bold mb-1 text-center md:text-left">{isCase ? (isRental ? '租金' : '開價') : '預算'}</div><div className="text-4xl sm:text-5xl font-black text-green-400 font-mono tracking-tighter">{isCase ? data.totalPrice : data.value?.toLocaleString()} <span className="text-xl sm:text-2xl ml-2 text-gray-500">{isCase && isRental ? '元' : '萬'}</span></div></div>
                             </div>
                         </div>
-
-                        {/* 2. 資訊網格 */}
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                            <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700">
-                                <div className="text-gray-500 text-xs mb-1 flex items-center gap-1"><Calendar className="w-3 h-3"/> 建檔日期</div>
-                                <div className="text-lg font-bold text-white">{formatDate(data.createdAt)}</div>
-                            </div>
-                            <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700">
-                                <div className="text-gray-500 text-xs mb-1 flex items-center gap-1"><Calendar className="w-3 h-3"/> 最新回報</div>
-                                <div className="text-lg font-bold text-yellow-400">{data.lastContact || '無'}</div>
-                            </div>
-                            
-                            {/* 次要專員 */}
-                            {data.subAgent && (
-                                <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700">
-                                    <div className="text-gray-500 text-xs mb-1 flex items-center gap-1"><Users className="w-3 h-3"/> 次要專員</div>
-                                    <div className="text-lg font-bold text-pink-300">{data.subAgent}</div>
-                                </div>
-                            )}
-
-                            {data.industry && (
-                                <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700">
-                                    <div className="text-gray-500 text-xs mb-1 flex items-center gap-1"><Briefcase className="w-3 h-3"/> 行業類別</div>
-                                    <div className="text-lg font-bold text-blue-300">{data.industry}</div>
-                                </div>
-                            )}
-                            {data.serviceItems && (
-                                <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700 sm:col-span-2 lg:col-span-1">
-                                    <div className="text-gray-500 text-xs mb-1 flex items-center gap-1"><Tag className="w-3 h-3"/> 服務項目</div>
-                                    <div className="text-lg font-bold text-green-300 truncate">{data.serviceItems}</div>
-                                </div>
-                            )}
+                            <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700"><div className="text-gray-500 text-xs mb-1 flex items-center gap-1"><Calendar className="w-3 h-3"/> 建檔日期</div><div className="text-lg font-bold text-white">{formatDate(data.createdAt)}</div></div>
+                            <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700"><div className="text-gray-500 text-xs mb-1 flex items-center gap-1"><Calendar className="w-3 h-3"/> 最新回報</div><div className="text-lg font-bold text-yellow-400">{data.lastContact || '無'}</div></div>
+                            {data.subAgent && <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700"><div className="text-gray-500 text-xs mb-1 flex items-center gap-1"><Users className="w-3 h-3"/> 次要專員</div><div className="text-lg font-bold text-pink-300">{data.subAgent}</div></div>}
+                            {data.industry && <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700"><div className="text-gray-500 text-xs mb-1 flex items-center gap-1"><Briefcase className="w-3 h-3"/> 行業類別</div><div className="text-lg font-bold text-blue-300">{data.industry}</div></div>}
+                            {data.serviceItems && <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700 sm:col-span-2 lg:col-span-1"><div className="text-gray-500 text-xs mb-1 flex items-center gap-1"><Tag className="w-3 h-3"/> 服務項目</div><div className="text-lg font-bold text-green-300 truncate">{data.serviceItems}</div></div>}
                         </div>
-
-                        {/* 3. 備註區塊 */}
-                        <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700 flex-1">
-                            <h3 className="text-xl font-bold text-gray-400 mb-4 border-b border-gray-600 pb-2 flex items-center gap-2">
-                                <LayoutDashboard className="w-5 h-5"/> 詳細備註
-                            </h3>
-                            <div className="whitespace-pre-wrap leading-relaxed text-gray-200 text-2xl font-medium">
-                                {data.remarks || "無詳細備註"}
+                        <div className="flex flex-col lg:flex-row gap-6 min-h-[300px]">
+                            <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700 flex-1 flex flex-col">
+                                <h3 className="text-xl font-bold text-gray-400 mb-4 border-b border-gray-600 pb-2 flex items-center gap-2"><LayoutDashboard className="w-5 h-5"/> 詳細備註</h3>
+                                <div className="whitespace-pre-wrap leading-relaxed text-gray-200 text-2xl font-medium flex-1 overflow-y-auto max-h-[400px] custom-scrollbar">{data.remarks || "無詳細備註"}</div>
+                            </div>
+                            <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700 flex-1 flex flex-col">
+                                <h3 className="text-xl font-bold text-gray-400 mb-4 border-b border-gray-600 pb-2 flex items-center gap-2"><StickyNote className="w-5 h-5"/> 回報紀錄 ({data.notes?.length || 0})</h3>
+                                <div className="flex-1 overflow-y-auto space-y-4 pr-2 custom-scrollbar max-h-[400px]">
+                                    {data.notes && data.notes.length > 0 ? ([...data.notes].reverse().map((note, idx) => (<div key={idx} className="bg-slate-700/50 p-4 rounded-xl border border-slate-600"><div className="flex justify-between items-center mb-2 border-b border-slate-600 pb-2"><span className="text-blue-300 font-bold flex items-center gap-1"><UserCircle className="w-4 h-4"/> {note.author}</span><span className="text-gray-400 text-xs">{note.date}</span></div><div className="text-gray-200 whitespace-pre-wrap text-lg font-medium">{note.content}</div></div>))) : (<div className="text-gray-500 text-center py-10">尚無回報紀錄</div>)}
+                                </div>
                             </div>
                         </div>
-
                     </div>
                 </div>
-                
-                {/* 底部 */}
-                <div className="bg-slate-950 p-3 text-center text-slate-600 text-xs font-mono uppercase tracking-widest border-t border-slate-800 flex-shrink-0">
-                    Broadcast Mode • GreenShoot Team
-                </div>
+                <div className="bg-slate-950 p-3 text-center text-slate-600 text-xs font-mono uppercase tracking-widest border-t border-slate-800 flex-shrink-0">Broadcast Mode • GreenShoot Team</div>
             </div>
         </div>
     );
 };
 
+// ... checkDateMatch, getCurrentWeekStr ...
 const checkDateMatch = (dateStr, timeFrame, targetYear, targetMonth, targetWeekStr) => {
     if (!dateStr) return false;
     let date;
     const strVal = String(dateStr).trim();
     const rocMatch = strVal.match(/^(\d{2,3})[./-](\d{1,2})[./-](\d{1,2})/);
-    if (rocMatch) {
-        let y = parseInt(rocMatch[1]);
-        const m = parseInt(rocMatch[2]);
-        const d = parseInt(rocMatch[3]);
-        if (y < 1000) y += 1911; 
-        date = new Date(y, m - 1, d);
-    } else {
-        date = new Date(dateStr);
-    }
+    if (rocMatch) { let y = parseInt(rocMatch[1]); const m = parseInt(rocMatch[2]); const d = parseInt(rocMatch[3]); if (y < 1000) y += 1911; date = new Date(y, m - 1, d); } else { date = new Date(dateStr); }
     if (isNaN(date.getTime())) return false;
     if (timeFrame === 'all') return true;
     if (timeFrame === 'year') return date.getFullYear() === targetYear;
     if (timeFrame === 'month') return date.getFullYear() === targetYear && (date.getMonth() + 1) === targetMonth;
-    if (timeFrame === 'week') {
-        if (!targetWeekStr) return false;
-        const [wYear, wWeek] = targetWeekStr.split('-W').map(Number);
-        if (!wYear || !wWeek) return false;
-        const simpleDate = new Date(wYear, 0, 1 + (wWeek - 1) * 7);
-        const dow = simpleDate.getDay();
-        const ISOweekStart = simpleDate;
-        if (dow <= 4)
-            ISOweekStart.setDate(simpleDate.getDate() - simpleDate.getDay() + 1);
-        else
-            ISOweekStart.setDate(simpleDate.getDate() + 8 - simpleDate.getDay());
-        const startDate = new Date(ISOweekStart);
-        startDate.setHours(0,0,0,0);
-        const endDate = new Date(startDate);
-        endDate.setDate(startDate.getDate() + 7);
-        return date >= startDate && date < endDate;
-    }
+    if (timeFrame === 'week') { if (!targetWeekStr) return false; const [wYear, wWeek] = targetWeekStr.split('-W').map(Number); if (!wYear || !wWeek) return false; const simpleDate = new Date(wYear, 0, 1 + (wWeek - 1) * 7); const dow = simpleDate.getDay(); const ISOweekStart = simpleDate; if (dow <= 4) ISOweekStart.setDate(simpleDate.getDate() - simpleDate.getDay() + 1); else ISOweekStart.setDate(simpleDate.getDate() + 8 - simpleDate.getDay()); const startDate = new Date(ISOweekStart); startDate.setHours(0,0,0,0); const endDate = new Date(startDate); endDate.setDate(startDate.getDate() + 7); return date >= startDate && date < endDate; }
     return false;
 };
 
-const getCurrentWeekStr = () => {
-    const today = new Date();
-    const d = new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate()));
-    const dayNum = d.getUTCDay() || 7;
-    d.setUTCDate(d.getUTCDate() + 4 - dayNum);
-    const yearStart = new Date(Date.UTC(d.getUTCFullYear(),0,1));
-    const weekNo = Math.ceil((((d - yearStart) / 86400000) + 1)/7);
-    return `${d.getUTCFullYear()}-W${String(weekNo).padStart(2, '0')}`;
-};
+const getCurrentWeekStr = () => { const today = new Date(); const d = new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate())); const dayNum = d.getUTCDay() || 7; d.setUTCDate(d.getUTCDate() + 4 - dayNum); const yearStart = new Date(Date.UTC(d.getUTCFullYear(),0,1)); const weekNo = Math.ceil((((d - yearStart) / 86400000) + 1)/7); return `${d.getUTCFullYear()}-W${String(weekNo).padStart(2, '0')}`; };
 
 export default function App() {
   const [sessionUser, setSessionUser] = useState(null);
@@ -248,12 +156,7 @@ export default function App() {
   const [companyProjects, setCompanyProjects] = useState({});
   const [projectAds, setProjectAds] = useState({}); 
   const [adWalls, setAdWalls] = useState([]); 
-  const [appSettings, setAppSettings] = useState({
-      sources: DEFAULT_SOURCES,
-      categories: DEFAULT_CATEGORIES,
-      levels: DEFAULT_LEVELS,
-      scriveners: [] 
-  });
+  const [appSettings, setAppSettings] = useState({ sources: DEFAULT_SOURCES, categories: DEFAULT_CATEGORIES, levels: DEFAULT_LEVELS, scriveners: [] });
 
   const [announcement, setAnnouncement] = useState(SYSTEM_ANNOUNCEMENT);
   
@@ -283,14 +186,9 @@ export default function App() {
   const [isExporting, setIsExporting] = useState(false);
   const [editingDeal, setEditingDeal] = useState(null);
 
-  const [darkMode, setDarkMode] = useState(() => {
-    try { return localStorage.getItem('crm-dark-mode') === 'true'; } catch { return false; }
-  });
+  const [darkMode, setDarkMode] = useState(() => { try { return localStorage.getItem('crm-dark-mode') === 'true'; } catch { return false; } });
 
-  useEffect(() => {
-      localStorage.setItem('crm_list_mode', listMode);
-  }, [listMode]);
-
+  useEffect(() => { localStorage.setItem('crm_list_mode', listMode); }, [listMode]);
   const toggleDarkMode = () => { setDarkMode(prev => { const newVal = !prev; localStorage.setItem('crm-dark-mode', String(newVal)); return newVal; }); };
   useEffect(() => { if (darkMode) { document.documentElement.classList.add('dark'); document.body.style.backgroundColor = '#020617'; } else { document.documentElement.classList.remove('dark'); document.body.style.backgroundColor = '#f3f4f6'; } }, [darkMode]);
 
@@ -308,6 +206,16 @@ export default function App() {
       return () => unsubscribe();
   }, [currentUser?.companyCode, currentUser?.username]);
 
+  // ★ 解決回報不刷新問題：自動同步 selectedCustomer ★
+  useEffect(() => {
+      if (selectedCustomer) {
+          const latestData = customers.find(c => c.id === selectedCustomer.id);
+          if (latestData && JSON.stringify(latestData) !== JSON.stringify(selectedCustomer)) {
+              setSelectedCustomer(latestData);
+          }
+      }
+  }, [customers]);
+
   useEffect(() => {
     const initAuth = async () => { try { await signInAnonymously(auth); } catch (error) { setLoading(false); } };
     initAuth();
@@ -315,18 +223,7 @@ export default function App() {
     const unsubscribe = onAuthStateChanged(auth, (u) => {
       setSessionUser(u);
       const savedUser = localStorage.getItem('crm-user-profile');
-      if (savedUser) {
-        try { 
-            setCurrentUser(JSON.parse(savedUser)); 
-            setView('list'); 
-        } 
-        catch (e) { 
-            localStorage.removeItem('crm-user-profile'); 
-            setView('login'); 
-        }
-      } else { 
-          setView('login'); 
-      }
+      if (savedUser) { try { setCurrentUser(JSON.parse(savedUser)); setView('list'); } catch (e) { localStorage.removeItem('crm-user-profile'); setView('login'); } } else { setView('login'); }
       setLoading(false); 
     });
     return () => unsubscribe();
@@ -344,28 +241,21 @@ export default function App() {
                   if (!isNaN(lastDate.getTime())) {
                       const diffTime = Math.abs(today - lastDate);
                       const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-                      let threshold = 30; 
-                      if (c.level === 'A') threshold = 3; else if (c.level === 'B') threshold = 7;
-                      if (diffDays >= threshold && c.status !== 'closed' && c.status !== 'lost') {
-                          tempNotifications.push({ id: c.id, name: c.name, category: c.category, type: 'contact', level: c.level, lastDate: lastDateStr, days: diffDays });
-                      }
+                      let threshold = 30; if (c.level === 'A') threshold = 3; else if (c.level === 'B') threshold = 7;
+                      if (diffDays >= threshold && c.status !== 'closed' && c.status !== 'lost') { tempNotifications.push({ id: c.id, name: c.name, category: c.category, type: 'contact', level: c.level, lastDate: lastDateStr, days: diffDays }); }
                   }
               }
               if (['賣方', '出租', '出租方'].includes(c.category) && c.commissionEndDate && !c.isRenewed) {
                   const endDate = new Date(c.commissionEndDate);
                   const diffDays = Math.ceil((endDate - today) / (86400000));
-                  if (diffDays >= 0 && diffDays <= 7) {
-                      tempNotifications.push({ id: c.id, name: c.name || c.caseName, category: c.category, type: 'commission', date: c.commissionEndDate, days: diffDays });
-                  }
+                  if (diffDays >= 0 && diffDays <= 7) { tempNotifications.push({ id: c.id, name: c.name || c.caseName, category: c.category, type: 'commission', date: c.commissionEndDate, days: diffDays }); }
               }
               if (c.scribeDetails && Array.isArray(c.scribeDetails)) {
                   c.scribeDetails.forEach((item, index) => {
                       if (item.payDate && !item.isPaid) {
                           const payDate = new Date(item.payDate);
                           const diffDays = Math.ceil((payDate - today) / (86400000));
-                          if (diffDays >= 0 && diffDays <= 7) {
-                              tempNotifications.push({ id: c.id, name: c.name, category: c.category, type: 'payment', date: item.payDate, days: diffDays, itemName: item.item || '未命名款項', itemIndex: index, scribeDetails: c.scribeDetails });
-                          }
+                          if (diffDays >= 0 && diffDays <= 7) { tempNotifications.push({ id: c.id, name: c.name, category: c.category, type: 'payment', date: item.payDate, days: diffDays, itemName: item.item || '未命名款項', itemIndex: index, scribeDetails: c.scribeDetails }); }
                       }
                   });
               }
@@ -384,10 +274,6 @@ export default function App() {
       data.sort((a, b) => (b.lastContact || '').localeCompare(a.lastContact || ''));
       setCustomers(data);
       setLoading(false);
-      if (selectedCustomer) {
-        const updated = data.find(c => c.id === selectedCustomer.id);
-        if (updated) setSelectedCustomer(updated);
-      }
     }, (error) => { console.error("Snapshot Error:", error); setLoading(false); });
     return () => unsubscribe();
   }, [sessionUser, currentUser]);
@@ -399,17 +285,8 @@ export default function App() {
       if (docSnap.exists()) {
         const data = docSnap.data();
         setCompanyProjects(data.projects || DEFAULT_PROJECTS || {});
-        setProjectAds(data.projectAds || {}); 
-        setAnnouncement(data.announcement || SYSTEM_ANNOUNCEMENT);
-        setAdWalls(data.adWalls || []);
-        setAppSettings({
-            sources: data.sources || DEFAULT_SOURCES,
-            categories: data.categories || DEFAULT_CATEGORIES,
-            levels: data.levels || DEFAULT_LEVELS,
-            scriveners: data.scriveners || [] 
-        });
-      } else {
-        // init data
+        setProjectAds(data.projectAds || {}); setAnnouncement(data.announcement || SYSTEM_ANNOUNCEMENT); setAdWalls(data.adWalls || []);
+        setAppSettings({ sources: data.sources || DEFAULT_SOURCES, categories: data.categories || DEFAULT_CATEGORIES, levels: data.levels || DEFAULT_LEVELS, scriveners: data.scriveners || [] });
       }
     });
     return () => unsubscribe();
@@ -428,53 +305,9 @@ export default function App() {
       }
   }, [currentUser]);
 
-  // Actions
-  const handleBroadcast = async (target, isActive) => {
-      if (!currentUser?.companyCode) { alert("錯誤：系統無法識別公司代碼"); return; }
-      
-      const targetId = (typeof target === 'object' && target?.id) ? target.id : target;
+  const handleCustomerClick = (customer) => { setSelectedCustomer(customer); setView('detail'); };
 
-      if (isActive && !targetId) {
-          alert("無法廣播：找不到該案件/客戶的 ID");
-          return;
-      }
-
-      try {
-          const broadcastRef = doc(db, 'artifacts', appId, 'public', 'system', 'broadcast_data', currentUser.companyCode);
-          await setDoc(broadcastRef, { 
-              isActive: isActive, 
-              targetId: targetId || null, 
-              presenterId: currentUser.username, 
-              timestamp: serverTimestamp() 
-          });
-      } catch (e) { 
-          console.error("Broadcast Error", e); 
-          alert("廣播失敗：權限不足或網路問題");
-      }
-  };
-  
-  const handleOverlayClose = (isGlobalClose) => { if (isGlobalClose) handleBroadcast(null, false); else setIncomingBroadcast(null); };
-
-  // 廣播監聽
-  useEffect(() => {
-      if (!currentUser?.companyCode) return;
-      const broadcastRef = doc(db, 'artifacts', appId, 'public', 'system', 'broadcast_data', currentUser.companyCode);
-      const unsubscribe = onSnapshot(broadcastRef, (docSnap) => {
-          if (docSnap.exists()) {
-              const data = docSnap.data();
-              if (data.isActive) {
-                  setMyBroadcastStatus(data.presenterId === currentUser.username);
-                  const target = customers.find(c => c.id === data.targetId);
-                  if (target) setIncomingBroadcast(target);
-              } else {
-                  setIncomingBroadcast(null);
-                  setMyBroadcastStatus(false);
-              }
-          }
-      });
-      return () => unsubscribe();
-  }, [currentUser, customers]);
-
+  // ★★★ 快速更新通知 ★★★
   const handleQuickUpdate = async (notiItem) => {
       try {
           if (notiItem.type === 'contact') {
@@ -493,86 +326,69 @@ export default function App() {
       } catch(e) { console.error(e); }
   };
 
-  const handleResolveAlert = async (id) => { if(!currentUser?.companyCode) return; try { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'system', 'alerts', id)); } catch(e) {} };
-  const handleLogout = () => { setCurrentUser(null); localStorage.removeItem('crm-user-profile'); setView('login'); setActiveTab('clients'); setSearchTerm(''); setLoading(false); };
+  // ★★★ 新增回報：同步更新 selectedCustomer ★★★
+  const handleAddNote = async (id, content) => { 
+      try { 
+          const today = new Date().toISOString().split('T')[0];
+          const newNote = { id: Date.now(), date: today, content, author: currentUser.name };
+          
+          await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'customers', id), { 
+              notes: arrayUnion(newNote), 
+              lastContact: today 
+          });
+          
+          if (selectedCustomer && selectedCustomer.id === id) {
+              setSelectedCustomer(prev => ({
+                  ...prev,
+                  lastContact: today,
+                  notes: [...(prev.notes || []), newNote]
+              }));
+          }
+      } catch(e) { console.error(e); } 
+  };
+
+  // ★★★ 刪除回報：同步更新 selectedCustomer ★★★
+  const handleDeleteNote = async (id, note) => { 
+      try { 
+          await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'customers', id), { 
+              notes: arrayRemove(note) 
+          }); 
+          
+          if (selectedCustomer && selectedCustomer.id === id) {
+              setSelectedCustomer(prev => ({
+                  ...prev,
+                  notes: (prev.notes || []).filter(n => n.id !== note.id)
+              }));
+          }
+      } catch(e) { console.error(e); } 
+  };
   
-  const handleLogin = async (username, password, companyCode, rememberMe) => {
-    setLoading(true);
-    try {
-      const usersRef = collection(db, 'artifacts', appId, 'public', 'data', 'app_users');
-      const q = query(usersRef, where("username", "==", username)); 
-      const querySnapshot = await getDocs(q);
-      let foundUser = null;
-      querySnapshot.forEach((doc) => { const u = doc.data(); if (u.password === password) { if (u.companyCode && u.companyCode !== companyCode) return; foundUser = { id: doc.id, ...u }; } });
-      if (foundUser) {
-        if (foundUser.status === 'suspended') { alert("此帳號已被停權"); setLoading(false); return; }
-        const profile = { username: foundUser.username, name: foundUser.name, role: foundUser.role, companyCode: foundUser.companyCode || companyCode };
-        setCurrentUser(profile);
-        localStorage.setItem('crm-user-profile', JSON.stringify(profile));
-        if (rememberMe) localStorage.setItem('crm-login-info', btoa(JSON.stringify({ username, password, companyCode })));
-        else localStorage.removeItem('crm-login-info');
-        setView('list');
-      } else { alert("登入失敗"); setLoading(false); }
-    } catch (e) { console.error(e); alert("登入錯誤"); setLoading(false); }
-  };
-
-  const handleRegister = async (username, password, name, role, adminCode, companyCode) => {
-    if (!username || !password || !name || !companyCode) return alert("請填寫完整");
-    setLoading(true);
-    let finalRole = role;
-    if (role === 'admin') { if (adminCode === SUPER_ADMIN_CODE) finalRole = 'super_admin'; else if (adminCode === ADMIN_CODE) finalRole = 'admin'; else { setLoading(false); alert("註冊碼錯誤"); return false; } }
-    try {
-      const usersRef = collection(db, 'artifacts', appId, 'public', 'data', 'app_users');
-      const q = query(usersRef, where("username", "==", username)); 
-      const snap = await getDocs(q);
-      if (!snap.empty) { alert("帳號已存在"); setLoading(false); return false; }
-      else { await addDoc(usersRef, { username, password, name, role: finalRole, companyCode, status: 'active', createdAt: serverTimestamp() }); alert("註冊成功"); setLoading(false); return true; }
-    } catch (e) { console.error(e); alert("註冊失敗"); setLoading(false); }
-    return false;
-  };
-
-  const handleAddCustomer = async (formData) => {
-    if (!currentUser) return;
-    try {
-      setView('list'); setActiveTab('clients');
-      const initialLastContact = formData.createdAt || new Date().toISOString().split('T')[0];
-      const newCustomer = { ...formData, createdAt: formData.createdAt ? new Date(formData.createdAt) : new Date(), notes: [], lastContact: initialLastContact, owner: currentUser.username || "unknown_user", ownerName: currentUser.name || "未知業務", companyCode: currentUser.companyCode || "unknown_company" };
-      Object.keys(newCustomer).forEach(key => { if (newCustomer[key] === undefined) delete newCustomer[key]; });
-      await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'customers'), newCustomer);
-      if ((newCustomer.category === '賣方' || newCustomer.category === '出租' || newCustomer.category === '出租方') && newCustomer.caseName && newCustomer.assignedRegion) {
-          const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'company_settings', currentUser.companyCode);
-          const docSnap = await getDoc(docRef);
+  // ★★★ 編輯回報：同步更新 selectedCustomer ★★★
+  const handleEditNote = async (customerId, noteObj, newContent) => {
+      if (!currentUser) return;
+      try {
+          const custRef = doc(db, 'artifacts', appId, 'public', 'data', 'customers', customerId);
+          const docSnap = await getDoc(custRef);
           if (docSnap.exists()) {
-              const currentProjects = docSnap.data().projects || {};
-              const region = newCustomer.assignedRegion;
-              const list = currentProjects[region] || [];
-              if (!list.includes(newCustomer.caseName)) {
-                  const updatedProjects = { ...currentProjects, [region]: [...list, newCustomer.caseName] };
-                  setCompanyProjects(updatedProjects); await updateDoc(docRef, { projects: updatedProjects }); 
+              const data = docSnap.data();
+              const currentNotes = data.notes || [];
+              const updatedNotes = currentNotes.map(n => 
+                  (n.id === noteObj.id) ? { ...n, content: newContent } : n
+              );
+              await updateDoc(custRef, { notes: updatedNotes });
+
+              if (selectedCustomer && selectedCustomer.id === customerId) {
+                  setSelectedCustomer(prev => ({
+                      ...prev,
+                      notes: updatedNotes
+                  }));
               }
           }
-      }
-      try { const today = new Date().getDay(); const quotes = (typeof DAILY_QUOTES !== 'undefined' && Array.isArray(DAILY_QUOTES)) ? DAILY_QUOTES : ["加油！"]; alert(`新增成功！\n\n💡 ${quotes[today] || quotes[0]}`); } catch (e) { alert("新增成功！"); }
-    } catch (err) { alert(`新增失敗：${err.message}`); }
+      } catch(e) { console.error(e); alert("編輯失敗"); }
   };
 
-  const handleBatchImport = async (importedData) => { if (!currentUser) return; setLoading(true); try { const batchPromises = importedData.map(data => { const safeDate = (val) => { if (!val) return new Date(); let d = new Date(val); if (isNaN(d.getTime()) || d.getFullYear() > 3000 || d.getFullYear() < 1900) return new Date(); return d; }; const cleanData = { ...data, owner: currentUser.username, ownerName: currentUser.name, companyCode: currentUser.companyCode, createdAt: safeDate(data.createdAt), lastContact: typeof data.lastContact === 'string' ? data.lastContact : safeDate(data.createdAt).toISOString().split('T')[0], notes: [], value: data.value ? Number(String(data.value).replace(/,/g, '')) : 0 }; Object.keys(cleanData).forEach(key => { if (cleanData[key] === undefined) delete cleanData[key]; }); return addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'customers'), cleanData); }); await Promise.all(batchPromises); alert(`成功匯入 ${importedData.length} 筆資料`); } catch (error) { alert("匯入失敗"); } finally { setLoading(false); } };
-  const handleBatchDelete = async (ids) => { if (!ids.length || !confirm(`刪除 ${ids.length} 筆？`)) return; setLoading(true); try { const batch = writeBatch(db); ids.forEach(id => batch.delete(doc(db, 'artifacts', appId, 'public', 'data', 'customers', id))); await batch.commit(); alert("刪除成功"); } catch (e) { alert("刪除失敗"); } finally { setLoading(false); } };
-
-  const handleCustomerClick = (customer) => { setSelectedCustomer(customer); setView('detail'); };
-  const handleEditCustomer = async (formData) => {
-    if (selectedCustomer.owner !== currentUser.username && !isAdmin) return alert("無權限");
-    try {
-      const { id, ...rest } = formData; const updateData = { ...rest };
-      if (updateData.createdAt) { const d = new Date(updateData.createdAt); if (!isNaN(d.getTime())) { updateData.createdAt = d; updateData.lastContact = d.toISOString().split('T')[0]; } else delete updateData.createdAt; }
-      Object.keys(updateData).forEach(key => updateData[key] === undefined && delete updateData[key]);
-      await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'customers', selectedCustomer.id), updateData);
-      setSelectedCustomer({ ...selectedCustomer, ...updateData }); setView('detail');
-    } catch (e) { alert("儲存失敗"); }
-  };
-  const handleDeleteCustomer = async () => { if (selectedCustomer.owner !== currentUser.username && !isAdmin) return alert("無權限"); try { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'customers', selectedCustomer.id)); setSelectedCustomer(null); setView('list'); } catch(e){} };
-  const handleAddNote = async (id, content) => { try { const today = new Date().toISOString().split('T')[0]; await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'customers', id), { notes: arrayUnion({id:Date.now(), date:today, content, author:currentUser.name}), lastContact: today }); } catch(e){} };
-  const handleDeleteNote = async (id, note) => { try { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'customers', id), { notes: arrayRemove(note) }); } catch(e){} };
+  const handleResolveAlert = async (id) => { if(!currentUser?.companyCode) return; try { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'system', 'alerts', id)); } catch(e) {} };
+  const handleLogout = () => { setCurrentUser(null); localStorage.removeItem('crm-user-profile'); setView('login'); setActiveTab('clients'); setSearchTerm(''); setLoading(false); };
   const saveSettingsToFirestore = async (np, na) => { if(!currentUser?.companyCode)return; const p={}; if(np)p.projects=np; if(na)p.projectAds=na; try{ await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'company_settings', currentUser.companyCode), p, {merge:true}); }catch(e){} };
   const handleSaveAnnouncement = async (t) => { if(!currentUser?.companyCode)return; try{ await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'company_settings', currentUser.companyCode), {announcement:t}, {merge:true}); alert("更新成功"); }catch(e){} };
   const handleAddOption = (type, val) => { if (Array.isArray(val) && (type === 'scriveners' || type === 'adWalls')) { setAppSettings({...appSettings, [type]: val}); if (type === 'adWalls') setAdWalls(val); return; } if(!val || (appSettings[type] && appSettings[type].includes(val))) return; const u = [...(appSettings[type] || []), val]; setAppSettings({...appSettings, [type]: u}); };
@@ -598,7 +414,6 @@ export default function App() {
   const handleProfileImage = (e) => { const file = e.target.files[0]; if(file) { if (file.size > 800 * 1024) return alert("圖片太大 (限 800KB)"); const reader = new FileReader(); reader.onloadend = () => setMyProfileData({...myProfileData, photoUrl: reader.result}); reader.readAsDataURL(file); } };
   const handleProfileSave = async (e) => { e.preventDefault(); try { if (myProfileData.id) { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'app_users', myProfileData.id), myProfileData); } setShowProfileModal(false); alert("個人資料已更新"); } catch (error) { alert("更新失敗"); } };
 
-  // Agent Stats
   const agentStats = useMemo(() => { if (!Array.isArray(allUsers) || !Array.isArray(deals)) return []; const map = {}; allUsers.forEach(u => { if (u && u.name) { map[u.name] = { name: u.name, total: 0, commission: 0 }; } }); deals.forEach(d => { const dateRef = d.dealDate || d.signDate || d.date; if (checkDateMatch(dateRef, dashTimeFrame, statYear, statMonth, statWeek)) { if (Array.isArray(d.devAgents)) { d.devAgents.forEach(ag => { if (ag && ag.user && map[ag.user]) { const amt = parseFloat(String(ag.amount || 0).replace(/,/g, '')) || 0; map[ag.user].commission += amt; map[ag.user].total += 1; } }); } if (Array.isArray(d.salesAgents)) { d.salesAgents.forEach(ag => { if (ag && ag.user && map[ag.user]) { const amt = parseFloat(String(ag.amount || 0).replace(/,/g, '')) || 0; map[ag.user].commission += amt; map[ag.user].total += 1; } }); } } }); return Object.values(map).sort((a,b) => b.commission - a.commission).filter(a => a.commission > 0); }, [deals, dashTimeFrame, statYear, statMonth, statWeek, allUsers]);
   const dashboardStats = useMemo(() => { let totalRevenue = 0; let wonCount = 0; let newCases = 0; let newBuyers = 0; if (Array.isArray(deals)) { deals.forEach(d => { const dateRef = d.dealDate || d.signDate || d.date; if (checkDateMatch(dateRef, dashTimeFrame, statYear, statMonth, statWeek)) { const sub = parseFloat(String(d.subtotal || 0).replace(/,/g, '')) || 0; totalRevenue += sub; wonCount++; } }); } if (Array.isArray(customers)) { customers.forEach(c => { let dateRef = c.createdAt; if (dateRef && typeof dateRef === 'object' && dateRef.seconds) { dateRef = new Date(dateRef.seconds * 1000); } if (checkDateMatch(dateRef, dashTimeFrame, statYear, statMonth, statWeek)) { if (['賣方', '出租', '出租方'].includes(c.category)) { newCases++; } else { newBuyers++; } } }); } return { totalRevenue, counts: { won: wonCount, cases: newCases, buyers: newBuyers } }; }, [customers, deals, dashTimeFrame, statYear, statMonth, statWeek]);
   const handleExportExcel = () => { setIsExporting(true); setTimeout(()=>{ alert("匯出功能已觸發"); setIsExporting(false); setShowExportMenu(false); },1000); };
@@ -608,7 +423,7 @@ export default function App() {
   
   if (view === 'add') return <CustomerForm customers={customers} onSubmit={handleAddCustomer} onCancel={() => setView('list')} appSettings={appSettings} companyProjects={companyProjects} projectAds={projectAds} darkMode={darkMode} allUsers={allUsers} currentUser={currentUser} />;
   if (view === 'edit' && selectedCustomer) return <CustomerForm customers={customers} onSubmit={handleEditCustomer} onCancel={() => setView('detail')} initialData={selectedCustomer} appSettings={appSettings} companyProjects={companyProjects} projectAds={projectAds} darkMode={darkMode} allUsers={allUsers} currentUser={currentUser} />;
-  if (view === 'detail' && selectedCustomer) return <CustomerDetail customer={selectedCustomer} allCustomers={customers} currentUser={currentUser} onEdit={() => setView('edit')} onDelete={handleDeleteCustomer} onAddNote={handleAddNote} onDeleteNote={handleDeleteNote} onBack={() => setView('list')} darkMode={darkMode} onQuickUpdate={handleQuickUpdate} allUsers={allUsers} />;
+  if (view === 'detail' && selectedCustomer) return <CustomerDetail customer={selectedCustomer} allCustomers={customers} currentUser={currentUser} onEdit={() => setView('edit')} onDelete={handleDeleteCustomer} onAddNote={handleAddNote} onDeleteNote={handleDeleteNote} onEditNote={handleEditNote} onBack={() => setView('list')} darkMode={darkMode} onQuickUpdate={handleQuickUpdate} allUsers={allUsers} />;
 
   return (
     <div className={`min-h-screen w-full transition-colors duration-300 ${darkMode ? 'dark bg-slate-950 text-slate-100' : 'bg-gray-50 text-gray-800'} overflow-x-hidden`} style={{ colorScheme: darkMode ? 'dark' : 'light' }}>
