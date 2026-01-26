@@ -52,11 +52,21 @@ const NotificationModal = ({ notifications, onClose, onQuickUpdate }) => {
     );
 };
 
-// ★★★ 廣播覆蓋層 (更新：加入次要專員) ★★★
+// ★★★ 廣播覆蓋層 (修正：狀態中文化) ★★★
 const BroadcastOverlay = ({ data, onClose, isPresenter }) => {
     if (!data) return null;
     const isCase = ['賣方', '出租', '出租方'].includes(data.category);
     const isRental = data.category.includes('出租');
+    
+    // 狀態對照表
+    const statusMap = { 
+        'new': '新案件', 
+        'contacting': '洽談中', 
+        'commissioned': '已委託', 
+        'offer': '已收斡', 
+        'closed': '已成交', 
+        'lost': '已無效' 
+    };
     
     // 日期格式化 helper
     const formatDate = (val) => {
@@ -92,7 +102,8 @@ const BroadcastOverlay = ({ data, onClose, isPresenter }) => {
                             <div className="flex-1 w-full text-center md:text-left">
                                 <div className="flex flex-wrap items-center justify-center md:justify-start gap-3 mb-3">
                                     <span className={`px-4 py-1.5 rounded-full text-base font-bold ${isCase ? 'bg-orange-500/20 text-orange-400' : 'bg-blue-500/20 text-blue-400'}`}>{data.category}</span>
-                                    <span className="bg-gray-700 px-4 py-1.5 rounded-full text-base border border-gray-600 font-bold">{data.status}</span>
+                                    {/* ★★★ 修正：使用中文狀態 ★★★ */}
+                                    <span className="bg-gray-700 px-4 py-1.5 rounded-full text-base border border-gray-600 font-bold">{statusMap[data.status] || data.status}</span>
                                 </div>
                                 <h1 className="text-3xl sm:text-5xl font-black tracking-tight leading-tight mb-3 text-white break-words">
                                     {isCase ? (data.caseName || data.name) : data.name}
@@ -112,7 +123,7 @@ const BroadcastOverlay = ({ data, onClose, isPresenter }) => {
                             </div>
                         </div>
 
-                        {/* 2. 資訊網格 (加入次要專員) */}
+                        {/* 2. 資訊網格 */}
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                             <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700">
                                 <div className="text-gray-500 text-xs mb-1 flex items-center gap-1"><Calendar className="w-3 h-3"/> 建檔日期</div>
@@ -123,7 +134,7 @@ const BroadcastOverlay = ({ data, onClose, isPresenter }) => {
                                 <div className="text-lg font-bold text-yellow-400">{data.lastContact || '無'}</div>
                             </div>
                             
-                            {/* ★★★ 次要專員 ★★★ */}
+                            {/* 次要專員 */}
                             {data.subAgent && (
                                 <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700">
                                     <div className="text-gray-500 text-xs mb-1 flex items-center gap-1"><Users className="w-3 h-3"/> 次要專員</div>
