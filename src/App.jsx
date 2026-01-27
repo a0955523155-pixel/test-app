@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
-  Loader2, Moon, Sun, LogOut, LayoutDashboard, List, Radio, X, MapPin, Bell, CheckCircle, AlertTriangle, BellRing, UserCircle, Settings, Wrench, Phone, Filter, ChevronDown, ChevronUp, User, Calendar, Tag, Briefcase, Users, StickyNote, Eye, Maximize2, Edit
+  Loader2, Moon, Sun, LogOut, LayoutDashboard, List, Radio, X, MapPin, Bell, CheckCircle, AlertTriangle, BellRing, UserCircle, Settings, Wrench, Phone, Filter, ChevronDown, ChevronUp, User, Calendar, Tag, Briefcase, Users, StickyNote, Eye, Maximize2, Edit, Trash2
 } from 'lucide-react';
 
 import { initializeApp, getApps, getApp } from 'firebase/app';
@@ -38,6 +38,45 @@ const firebaseConfig = {
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 const auth = getAuth(app);
 const db = getFirestore(app);
+
+// --- 輔助函式 ---
+const checkDateMatch = (dateRef, timeFrame, targetYear, targetMonth, targetWeekStr) => {
+    if (!dateRef) return false;
+    let date;
+    if (dateRef.seconds) { date = new Date(dateRef.seconds * 1000); } 
+    else { date = new Date(dateRef); }
+    if (isNaN(date.getTime())) return false;
+
+    if (timeFrame === 'all') return true;
+    if (timeFrame === 'year') return date.getFullYear() === targetYear;
+    if (timeFrame === 'month') return date.getFullYear() === targetYear && (date.getMonth() + 1) === targetMonth;
+    
+    if (timeFrame === 'week') {
+        if (!targetWeekStr) return false;
+        const [wYear, wWeek] = targetWeekStr.split('-W').map(Number);
+        const simpleDate = new Date(wYear, 0, 1 + (wWeek - 1) * 7);
+        const dow = simpleDate.getDay();
+        const ISOweekStart = simpleDate;
+        if (dow <= 4) ISOweekStart.setDate(simpleDate.getDate() - simpleDate.getDay() + 1);
+        else ISOweekStart.setDate(simpleDate.getDate() + 8 - simpleDate.getDay());
+        const startDate = new Date(ISOweekStart);
+        startDate.setHours(0,0,0,0);
+        const endDate = new Date(startDate);
+        endDate.setDate(startDate.getDate() + 7);
+        return date >= startDate && date < endDate;
+    }
+    return false;
+};
+
+const getCurrentWeekStr = () => { 
+    const today = new Date(); 
+    const d = new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate())); 
+    const dayNum = d.getUTCDay() || 7; 
+    d.setUTCDate(d.getUTCDate() + 4 - dayNum); 
+    const yearStart = new Date(Date.UTC(d.getUTCFullYear(),0,1)); 
+    const weekNo = Math.ceil((((d - yearStart) / 86400000) + 1)/7); 
+    return `${d.getUTCFullYear()}-W${String(weekNo).padStart(2, '0')}`; 
+};
 
 // --- 通知視窗元件 ---
 const NotificationModal = ({ notifications, onClose, onQuickUpdate, onView }) => {
@@ -82,14 +121,12 @@ const NotificationModal = ({ notifications, onClose, onQuickUpdate, onView }) =>
     );
 };
 
-// --- 廣播覆蓋層 (修正：圖資全螢幕功能) ---
-const BroadcastOverlay = ({ data, onClose, isPresenter }) => {
+// --- 廣播覆蓋層 ---
+const BroadcastOverlay = ({ data, onClose, isPresenter, onView }) => {
     if (!data) return null;
-    const [fullScreenImg, setFullScreenImg] = useState(null); // ★ 新增：全螢幕圖片狀態 ★
-
+    const [fullScreenImg, setFullScreenImg] = useState(null); 
     const isCase = ['賣方', '出租', '出租方'].includes(data.category);
-    const isRental = data.category.includes('出租');
-    
+    const coverPos = data.coverImagePosition || 50;
     const statusMap = { 'new': '新案件', 'contacting': '洽談中', 'commissioned': '已委託', 'offer': '已收斡', 'closed': '已成交', 'lost': '已無效' };
     
     const formatDate = (val) => {
@@ -107,10 +144,6 @@ const BroadcastOverlay = ({ data, onClose, isPresenter }) => {
         } 
     };
     
-    // ★ 讀取儲存的封面位置，預設 50% ★
-    const coverPos = data.coverImagePosition || 50;
-
-    // ★ 相關圖資陣列 ★
     const attachments = [
         { label: '地籍圖', src: data.imgCadastral },
         { label: '路線圖', src: data.imgRoute },
@@ -120,75 +153,28 @@ const BroadcastOverlay = ({ data, onClose, isPresenter }) => {
 
     return (
         <div className="fixed inset-0 z-[100] bg-black/90 text-white flex flex-col items-center justify-center p-2 sm:p-4 overflow-hidden animate-in fade-in zoom-in duration-300 backdrop-blur-md">
-            
-            {/* ★ 全螢幕圖片覆蓋層 (z-index 200 > 廣播層 100) ★ */}
             {fullScreenImg && (
-                <div 
-                    className="fixed inset-0 z-[200] bg-black flex items-center justify-center p-4 animate-in zoom-in duration-200"
-                    onClick={() => setFullScreenImg(null)}
-                >
-                    <button className="absolute top-4 right-4 p-4 text-white hover:text-gray-300 z-[210]">
-                        <X className="w-10 h-10"/>
-                    </button>
-                    {/* 判斷如果是 PDF 使用 iframe，否則使用 img */}
-                    {fullScreenImg.startsWith('data:application/pdf') ? (
-                        <iframe src={fullScreenImg} className="w-full h-full bg-white rounded-lg border-none"></iframe>
-                    ) : (
-                        <img 
-                            src={fullScreenImg} 
-                            className="max-w-full max-h-full object-contain shadow-2xl rounded-sm" 
-                            onClick={(e) => e.stopPropagation()} // 防止點擊圖片時關閉
-                        />
-                    )}
+                <div className="fixed inset-0 z-[200] bg-black flex items-center justify-center p-4 animate-in zoom-in duration-200" onClick={() => setFullScreenImg(null)}>
+                    <button className="absolute top-4 right-4 p-4 text-white hover:text-gray-300 z-[210]"><X className="w-10 h-10"/></button>
+                    {fullScreenImg.startsWith('data:application/pdf') ? <iframe src={fullScreenImg} className="w-full h-full bg-white rounded-lg border-none"></iframe> : <img src={fullScreenImg} className="max-w-full max-h-full object-contain shadow-2xl rounded-sm" onClick={(e) => e.stopPropagation()} />}
                 </div>
             )}
-
-            {/* 右上角按鈕區 (僅保留關閉) */}
-            <div className="fixed top-4 right-4 z-[110] flex gap-3">
-                <button 
-                    onClick={handleClose} 
-                    className="p-2 bg-white/10 hover:bg-white/30 rounded-full transition-colors border border-white/20 shadow-lg"
-                    title="關閉視窗"
-                >
-                    <X className="w-6 h-6"/>
-                </button>
-            </div>
-            
+            <div className="fixed top-4 right-4 z-[110] flex gap-3"><button onClick={handleClose} className="p-2 bg-white/10 hover:bg-white/30 rounded-full transition-colors border border-white/20 shadow-lg" title="關閉視窗"><X className="w-6 h-6"/></button></div>
             <div className="bg-slate-900 border border-slate-700 rounded-3xl w-full max-w-6xl shadow-2xl relative flex flex-col max-h-[95vh] overflow-hidden">
                 <div className="flex-1 overflow-y-auto p-6 sm:p-8 custom-scrollbar">
                     <div className="flex flex-col gap-6">
-                        
                         <div className="flex flex-col md:flex-row items-start gap-6 border-b border-gray-700 pb-6">
                             <div className="flex-shrink-0 w-full md:w-auto flex justify-center">
-                                {data.photoUrl ? ( 
-                                    <img 
-                                        src={data.photoUrl} 
-                                        alt="Case" 
-                                        className="w-48 h-48 sm:w-64 sm:h-48 object-cover rounded-xl shadow-lg border border-gray-600" 
-                                        style={{ objectPosition: `center ${coverPos}%` }}
-                                    /> 
-                                ) : ( 
-                                    <div className={`w-32 h-32 sm:w-48 sm:h-48 rounded-2xl flex items-center justify-center text-6xl font-bold shadow-lg ${isCase ? 'bg-orange-600' : 'bg-blue-600'}`}>{data.name?.[0]}</div> 
-                                )}
+                                {data.photoUrl ? ( <img src={data.photoUrl} alt="Case" className="w-48 h-48 sm:w-64 sm:h-48 object-cover rounded-xl shadow-lg border border-gray-600" style={{ objectPosition: `center ${coverPos}%` }} /> ) : ( <div className={`w-32 h-32 sm:w-48 sm:h-48 rounded-2xl flex items-center justify-center text-6xl font-bold shadow-lg ${isCase ? 'bg-orange-600' : 'bg-blue-600'}`}>{data.name?.[0]}</div> )}
                             </div>
-                            
                             <div className="flex-1 w-full text-center md:text-left">
                                 <div className="flex flex-wrap items-center justify-center md:justify-start gap-3 mb-3">
                                     <span className={`px-4 py-1.5 rounded-full text-base font-bold ${isCase ? 'bg-orange-500/20 text-orange-400' : 'bg-blue-500/20 text-blue-400'}`}>{data.category}</span>
                                     <span className="bg-gray-700 px-4 py-1.5 rounded-full text-base border border-gray-600 font-bold">{statusMap[data.status] || data.status}</span>
                                 </div>
                                 <h1 className="text-3xl sm:text-5xl font-black tracking-tight leading-tight mb-3 text-white break-words">{isCase ? (data.caseName || data.name) : data.name}</h1>
-                                <div className="text-xl sm:text-2xl text-gray-300 font-medium flex items-center justify-center md:justify-start gap-2 mb-4">
-                                    <MapPin className="w-6 h-6 text-gray-500 flex-shrink-0"/>
-                                    {isCase ? (data.landNo || data.reqRegion) : data.reqRegion}
-                                </div>
-                                <div className="inline-block bg-slate-800/80 px-6 py-3 rounded-2xl border border-slate-600">
-                                    <div className="text-gray-400 text-sm font-bold mb-1 text-center md:text-left">{isCase ? (isRental ? '租金' : '開價') : '預算'}</div>
-                                    <div className="text-4xl sm:text-5xl font-black text-green-400 font-mono tracking-tighter">
-                                        {isCase ? data.totalPrice : data.value?.toLocaleString()} 
-                                        <span className="text-xl sm:text-2xl ml-2 text-gray-500">{isCase && isRental ? '元' : '萬'}</span>
-                                    </div>
-                                </div>
+                                <div className="text-xl sm:text-2xl text-gray-300 font-medium flex items-center justify-center md:justify-start gap-2 mb-4"><MapPin className="w-6 h-6 text-gray-500 flex-shrink-0"/>{isCase ? (data.landNo || data.reqRegion) : data.reqRegion}</div>
+                                <div className="inline-block bg-slate-800/80 px-6 py-3 rounded-2xl border border-slate-600"><div className="text-gray-400 text-sm font-bold mb-1 text-center md:text-left">{isCase ? (isRental ? '租金' : '開價') : '預算'}</div><div className="text-4xl sm:text-5xl font-black text-green-400 font-mono tracking-tighter">{isCase ? data.totalPrice : data.value?.toLocaleString()} <span className="text-xl sm:text-2xl ml-2 text-gray-500">{isCase && isRental ? '元' : '萬'}</span></div></div>
                             </div>
                         </div>
 
@@ -200,7 +186,6 @@ const BroadcastOverlay = ({ data, onClose, isPresenter }) => {
                             {data.serviceItems && <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700 sm:col-span-2 lg:col-span-1"><div className="text-gray-500 text-xs mb-1 flex items-center gap-1"><Tag className="w-3 h-3"/> 服務項目</div><div className="text-lg font-bold text-green-300 truncate">{data.serviceItems}</div></div>}
                         </div>
 
-                        {/* 備註與回報 */}
                         <div className="flex flex-col lg:flex-row gap-6 min-h-[300px]">
                             <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700 flex-1 flex flex-col">
                                 <h3 className="text-xl font-bold text-gray-400 mb-4 border-b border-gray-600 pb-2 flex items-center gap-2"><LayoutDashboard className="w-5 h-5"/> 詳細備註</h3>
@@ -214,33 +199,20 @@ const BroadcastOverlay = ({ data, onClose, isPresenter }) => {
                             </div>
                         </div>
 
-                        {/* ★ 相關圖資區塊 (點擊展開全螢幕) ★ */}
                         {attachments.length > 0 && (
                             <div className="mt-4 pt-6 border-t border-gray-700">
                                 <h3 className="text-xl font-bold text-gray-400 mb-4 flex items-center gap-2"><MapPin className="w-5 h-5"/> 相關圖資 (點擊放大)</h3>
                                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
                                     {attachments.map((img, idx) => (
-                                        <div 
-                                            key={idx} 
-                                            className="group relative bg-slate-800 p-2 rounded-xl border border-slate-700 overflow-hidden cursor-pointer hover:border-blue-500 transition-all"
-                                            onClick={() => setFullScreenImg(img.src)}
-                                        >
+                                        <div key={idx} className="group relative bg-slate-800 p-2 rounded-xl border border-slate-700 overflow-hidden cursor-pointer hover:border-blue-500 transition-all" onClick={() => setFullScreenImg(img.src)}>
                                             <div className="absolute top-2 left-2 bg-black/60 px-2 py-1 rounded text-xs font-bold text-white z-10">{img.label}</div>
-                                            {img.src.startsWith('data:application/pdf') ? (
-                                                <div className="w-full h-40 bg-white flex items-center justify-center text-slate-800 text-sm font-bold">PDF 文件</div>
-                                            ) : (
-                                                <img src={img.src} alt={img.label} className="w-full h-40 object-cover rounded-lg group-hover:scale-105 transition-transform duration-300" />
-                                            )}
-                                            {/* 放大提示圖示 */}
-                                            <div className="absolute bottom-2 right-2 bg-blue-600/80 p-1.5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity">
-                                                <Maximize2 className="w-4 h-4 text-white"/>
-                                            </div>
+                                            {img.src.startsWith('data:application/pdf') ? ( <div className="w-full h-40 bg-white flex items-center justify-center text-slate-800 text-sm font-bold">PDF 文件</div> ) : ( <img src={img.src} alt={img.label} className="w-full h-40 object-cover rounded-lg group-hover:scale-105 transition-transform duration-300" /> )}
+                                            <div className="absolute bottom-2 right-2 bg-blue-600/80 p-1.5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"><Maximize2 className="w-4 h-4 text-white"/></div>
                                         </div>
                                     ))}
                                 </div>
                             </div>
                         )}
-
                     </div>
                 </div>
                 <div className="bg-slate-950 p-3 text-center text-slate-600 text-xs font-mono uppercase tracking-widest border-t border-slate-800 flex-shrink-0">Broadcast Mode • GreenShoot Team</div>
@@ -248,23 +220,6 @@ const BroadcastOverlay = ({ data, onClose, isPresenter }) => {
         </div>
     );
 };
-
-// ... checkDateMatch, getCurrentWeekStr ...
-const checkDateMatch = (dateStr, timeFrame, targetYear, targetMonth, targetWeekStr) => {
-    if (!dateStr) return false;
-    let date;
-    const strVal = String(dateStr).trim();
-    const rocMatch = strVal.match(/^(\d{2,3})[./-](\d{1,2})[./-](\d{1,2})/);
-    if (rocMatch) { let y = parseInt(rocMatch[1]); const m = parseInt(rocMatch[2]); const d = parseInt(rocMatch[3]); if (y < 1000) y += 1911; date = new Date(y, m - 1, d); } else { date = new Date(dateStr); }
-    if (isNaN(date.getTime())) return false;
-    if (timeFrame === 'all') return true;
-    if (timeFrame === 'year') return date.getFullYear() === targetYear;
-    if (timeFrame === 'month') return date.getFullYear() === targetYear && (date.getMonth() + 1) === targetMonth;
-    if (timeFrame === 'week') { if (!targetWeekStr) return false; const [wYear, wWeek] = targetWeekStr.split('-W').map(Number); if (!wYear || !wWeek) return false; const simpleDate = new Date(wYear, 0, 1 + (wWeek - 1) * 7); const dow = simpleDate.getDay(); const ISOweekStart = simpleDate; if (dow <= 4) ISOweekStart.setDate(simpleDate.getDate() - simpleDate.getDay() + 1); else ISOweekStart.setDate(simpleDate.getDate() + 8 - simpleDate.getDay()); const startDate = new Date(ISOweekStart); startDate.setHours(0,0,0,0); const endDate = new Date(startDate); endDate.setDate(startDate.getDate() + 7); return date >= startDate && date < endDate; }
-    return false;
-};
-
-const getCurrentWeekStr = () => { const today = new Date(); const d = new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate())); const dayNum = d.getUTCDay() || 7; d.setUTCDate(d.getUTCDate() + 4 - dayNum); const yearStart = new Date(Date.UTC(d.getUTCFullYear(),0,1)); const weekNo = Math.ceil((((d - yearStart) / 86400000) + 1)/7); return `${d.getUTCFullYear()}-W${String(weekNo).padStart(2, '0')}`; };
 
 export default function App() {
   const [sessionUser, setSessionUser] = useState(null);
@@ -297,28 +252,23 @@ export default function App() {
   const [newRegionName, setNewRegionName] = useState('');
   const [newProjectNames, setNewProjectNames] = useState({});
   const [adManageProject, setAdManageProject] = useState(null); 
-  const [adForm, setAdForm] = useState({ id: '', name: '', startDate: '', endDate: '' });
+  const [adForm, setAdForm] = useState({ id: '', name: '', startDate: '', endDate: '', cost: '' }); // cost added
   const [isEditingAd, setIsEditingAd] = useState(false);
   const [pendingDelete, setPendingDelete] = useState(null);
-  
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [myProfileData, setMyProfileData] = useState({});
-
   const [dashTimeFrame, setDashTimeFrame] = useState('month'); 
   const [listMode, setListMode] = useState(() => localStorage.getItem('crm_list_mode') || 'all');
-  
   const [listYear, setListYear] = useState(new Date().getFullYear());
   const [listMonth, setListMonth] = useState(new Date().getMonth() + 1);
   const [listWeekDate, setListWeekDate] = useState(new Date().toISOString().split('T')[0]); 
   const [statYear, setStatYear] = useState(new Date().getFullYear());
   const [statMonth, setStatMonth] = useState(new Date().getMonth() + 1);
   const [statWeek, setStatWeek] = useState(getCurrentWeekStr());
-
   const [allUsers, setAllUsers] = useState([]);
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [editingDeal, setEditingDeal] = useState(null);
-
   const [darkMode, setDarkMode] = useState(() => { try { return localStorage.getItem('crm-dark-mode') === 'true'; } catch { return false; } });
 
   useEffect(() => { localStorage.setItem('crm_list_mode', listMode); }, [listMode]);
@@ -339,7 +289,6 @@ export default function App() {
       return () => unsubscribe();
   }, [currentUser?.companyCode, currentUser?.username]);
 
-  // ★ 廣播模式修正：監聽廣播資料 ★
   useEffect(() => {
       if (!currentUser?.companyCode) return;
       const broadcastRef = doc(db, 'artifacts', appId, 'public', 'system', 'broadcast_data', currentUser.companyCode);
@@ -359,7 +308,6 @@ export default function App() {
       return () => unsubscribe();
   }, [currentUser]);
 
-  // ★ 廣播資料與客戶資料同步 ★
   useEffect(() => {
       if (broadcastData && customers.length > 0) {
           const target = customers.find(c => c.id === broadcastData.targetId);
@@ -369,7 +317,6 @@ export default function App() {
       }
   }, [broadcastData, customers]);
 
-  // ★ 解決回報不刷新問題：自動同步 selectedCustomer ★
   useEffect(() => {
       if (selectedCustomer) {
           const latestData = customers.find(c => c.id === selectedCustomer.id);
@@ -382,7 +329,6 @@ export default function App() {
   useEffect(() => {
     const initAuth = async () => { try { await signInAnonymously(auth); } catch (error) { setLoading(false); } };
     initAuth();
-    
     const unsubscribe = onAuthStateChanged(auth, (u) => {
       setSessionUser(u);
       const savedUser = localStorage.getItem('crm-user-profile');
@@ -392,25 +338,16 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // ★★★ 智慧頻率提醒核心邏輯 ★★★
   useEffect(() => {
       if (!customers || customers.length === 0 || !currentUser) return;
       const today = new Date();
       const tempNotifications = [];
-
       const getContactThreshold = (level, status) => {
           if (status === 'lost') return 999;
           if (status === 'closed') return 30;
-          if (status === 'commissioned') {
-              if (level === 'A') return 7; 
-              if (level === 'B') return 14; 
-              return 30; 
-          }
-          if (level === 'A') return 3; 
-          if (level === 'B') return 7; 
-          return 14; 
+          if (status === 'commissioned') { if (level === 'A') return 7; if (level === 'B') return 14; return 30; }
+          if (level === 'A') return 3; if (level === 'B') return 7; return 14; 
       };
-
       customers.forEach(c => {
           if (c.owner === currentUser.username) {
               const lastDateStr = c.lastContact || (c.createdAt ? (typeof c.createdAt === 'string' ? c.createdAt.split('T')[0] : '') : '');
@@ -488,170 +425,59 @@ export default function App() {
       }
   }, [currentUser]);
 
-  // ★★★ 核心功能函式 ★★★
-  
+  // ★★★ 補回 handleLogin 與 handleRegister ★★★
+  const handleLogin = async (username, password) => {
+      setLoading(true);
+      try {
+          const usersRef = collection(db, 'artifacts', appId, 'public', 'data', 'app_users');
+          const q = query(usersRef, where("username", "==", username), where("password", "==", password));
+          const querySnapshot = await getDocs(q);
+
+          if (!querySnapshot.empty) {
+              const userDoc = querySnapshot.docs[0];
+              const userData = { id: userDoc.id, ...userDoc.data() };
+              if (userData.status === 'suspended') {
+                  alert("此帳號已被停權");
+                  setLoading(false);
+                  return;
+              }
+              setCurrentUser(userData);
+              localStorage.setItem('crm-user-profile', JSON.stringify(userData));
+              setView('list');
+          } else {
+              alert("帳號或密碼錯誤");
+          }
+      } catch (error) {
+          console.error("Login Error", error);
+          alert("登入發生錯誤");
+      }
+      setLoading(false);
+  };
+
+  const handleRegister = () => {
+      alert("請聯繫管理員建立帳號");
+  };
+
   const handleCustomerClick = (customer) => { setSelectedCustomer(customer); setView('detail'); };
-  
-  // ★ 新增：直接更新客戶資料 (用於儲存封面位置) ★
-  const handleDirectUpdate = async (customerId, updateData) => {
-      if (!customerId || !currentUser) return;
-      try {
-          await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'customers', customerId), updateData);
-      } catch(e) { console.error("Direct update failed", e); }
-  };
-
-  const handleViewFromNotification = (customerId) => {
-      const target = customers.find(c => c.id === customerId);
-      if (target) {
-          setSelectedCustomer(target);
-          setView('detail');
-          setNotifications([]);
-      } else {
-          alert("找不到該客戶資料");
-      }
-  };
-
-  const handleEditCustomer = async (formData) => {
-    if (selectedCustomer.owner !== currentUser.username && !isAdmin) return alert("無權限");
-    try {
-      const { id, ...rest } = formData;
-      const updateData = { ...rest };
-      if (updateData.createdAt) {
-          const d = new Date(updateData.createdAt);
-          if (!isNaN(d.getTime())) { updateData.createdAt = d; } else { delete updateData.createdAt; }
-      }
-      Object.keys(updateData).forEach(key => updateData[key] === undefined && delete updateData[key]);
-      await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'customers', selectedCustomer.id), updateData);
-      setSelectedCustomer({ ...selectedCustomer, ...updateData }); setView('detail');
-    } catch (e) { alert("儲存失敗"); }
-  };
-
-  const handleDeleteCustomer = async () => { 
-      if (selectedCustomer.owner !== currentUser.username && !isAdmin) return alert("無權限"); 
-      try { 
-          await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'customers', selectedCustomer.id)); 
-          setSelectedCustomer(null); 
-          setView('list'); 
-      } catch(e){ alert("刪除失敗"); } 
-  };
-
-  const handleQuickUpdate = async (notiItem) => {
-      try {
-          if (notiItem.type === 'contact') {
-              const todayStr = new Date().toISOString().split('T')[0];
-              await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'customers', notiItem.id), { lastContact: todayStr });
-          } else if (notiItem.type === 'commission') {
-              await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'customers', notiItem.id), { isRenewed: true });
-          } else if (notiItem.type === 'payment') {
-              const updatedDetails = [...notiItem.scribeDetails];
-              if (updatedDetails[notiItem.itemIndex]) {
-                  updatedDetails[notiItem.itemIndex].isPaid = true;
-                  await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'customers', notiItem.id), { scribeDetails: updatedDetails });
-              }
-          }
-          setNotifications(prev => prev.filter(n => !(n.id === notiItem.id && n.type === notiItem.type && n.itemIndex === notiItem.itemIndex)));
-      } catch(e) { console.error(e); }
-  };
-
-  const handleAddNote = async (id, content) => { 
-      try { 
-          const today = new Date().toISOString().split('T')[0];
-          const newNote = { id: Date.now(), date: today, content, author: currentUser.name };
-          await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'customers', id), { 
-              notes: arrayUnion(newNote), 
-              lastContact: today 
-          });
-          if (selectedCustomer && selectedCustomer.id === id) {
-              setSelectedCustomer(prev => ({ ...prev, lastContact: today, notes: [...(prev.notes || []), newNote] }));
-          }
-      } catch(e) { console.error(e); } 
-  };
-
-  const handleDeleteNote = async (id, note) => { 
-      try { 
-          await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'customers', id), { notes: arrayRemove(note) }); 
-          if (selectedCustomer && selectedCustomer.id === id) {
-              setSelectedCustomer(prev => ({ ...prev, notes: (prev.notes || []).filter(n => n.id !== note.id) }));
-          }
-      } catch(e) { console.error(e); } 
-  };
-  
-  const handleEditNote = async (customerId, noteObj, newContent) => {
-      if (!currentUser) return;
-      try {
-          const custRef = doc(db, 'artifacts', appId, 'public', 'data', 'customers', customerId);
-          const docSnap = await getDoc(custRef);
-          if (docSnap.exists()) {
-              const data = docSnap.data();
-              const currentNotes = data.notes || [];
-              const updatedNotes = currentNotes.map(n => (n.id === noteObj.id) ? { ...n, content: newContent } : n);
-              await updateDoc(custRef, { notes: updatedNotes });
-              if (selectedCustomer && selectedCustomer.id === customerId) {
-                  setSelectedCustomer(prev => ({ ...prev, notes: updatedNotes }));
-              }
-          }
-      } catch(e) { console.error(e); alert("編輯失敗"); }
-  };
-
-  const handleBroadcast = async (target, isActive) => {
-      if (!currentUser?.companyCode) { alert("錯誤：系統無法識別公司代碼"); return; }
-      const targetId = (typeof target === 'object' && target?.id) ? target.id : target;
-      if (isActive && !targetId) { alert("無法廣播：找不到該案件/客戶的 ID"); return; }
-      try {
-          const broadcastRef = doc(db, 'artifacts', appId, 'public', 'system', 'broadcast_data', currentUser.companyCode);
-          await setDoc(broadcastRef, { isActive: isActive, targetId: targetId || null, presenterId: currentUser.username, timestamp: serverTimestamp() });
-      } catch (e) { alert("廣播失敗"); }
-  };
-  
+  const handleViewFromNotification = (customerId) => { const target = customers.find(c => c.id === customerId); if (target) { setSelectedCustomer(target); setView('detail'); setNotifications([]); } else { alert("找不到該客戶資料"); } };
+  const handleEditCustomer = async (formData) => { if (selectedCustomer.owner !== currentUser.username && !isAdmin) return alert("無權限"); try { const { id, ...rest } = formData; const updateData = { ...rest }; if (updateData.createdAt) { const d = new Date(updateData.createdAt); if (!isNaN(d.getTime())) { updateData.createdAt = d; } else { delete updateData.createdAt; } } Object.keys(updateData).forEach(key => updateData[key] === undefined && delete updateData[key]); await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'customers', selectedCustomer.id), updateData); setSelectedCustomer({ ...selectedCustomer, ...updateData }); setView('detail'); } catch (e) { alert("儲存失敗"); } };
+  const handleDeleteCustomer = async () => { if (selectedCustomer.owner !== currentUser.username && !isAdmin) return alert("無權限"); try { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'customers', selectedCustomer.id)); setSelectedCustomer(null); setView('list'); } catch(e){ alert("刪除失敗"); } };
+  const handleQuickUpdate = async (notiItem) => { try { if (notiItem.type === 'contact') { const todayStr = new Date().toISOString().split('T')[0]; await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'customers', notiItem.id), { lastContact: todayStr }); } else if (notiItem.type === 'commission') { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'customers', notiItem.id), { isRenewed: true }); } else if (notiItem.type === 'payment') { const updatedDetails = [...notiItem.scribeDetails]; if (updatedDetails[notiItem.itemIndex]) { updatedDetails[notiItem.itemIndex].isPaid = true; await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'customers', notiItem.id), { scribeDetails: updatedDetails }); } } setNotifications(prev => prev.filter(n => !(n.id === notiItem.id && n.type === notiItem.type && n.itemIndex === notiItem.itemIndex))); } catch(e) { console.error(e); } };
+  const handleAddNote = async (id, content) => { try { const today = new Date().toISOString().split('T')[0]; const newNote = { id: Date.now(), date: today, content, author: currentUser.name }; await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'customers', id), { notes: arrayUnion(newNote), lastContact: today }); if (selectedCustomer && selectedCustomer.id === id) { setSelectedCustomer(prev => ({ ...prev, lastContact: today, notes: [...(prev.notes || []), newNote] })); } } catch(e) { console.error(e); } };
+  const handleDeleteNote = async (id, note) => { try { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'customers', id), { notes: arrayRemove(note) }); if (selectedCustomer && selectedCustomer.id === id) { setSelectedCustomer(prev => ({ ...prev, notes: (prev.notes || []).filter(n => n.id !== note.id) })); } } catch(e) { console.error(e); } };
+  const handleEditNote = async (customerId, noteObj, newContent) => { if (!currentUser) return; try { const custRef = doc(db, 'artifacts', appId, 'public', 'data', 'customers', customerId); const docSnap = await getDoc(custRef); if (docSnap.exists()) { const data = docSnap.data(); const currentNotes = data.notes || []; const updatedNotes = currentNotes.map(n => (n.id === noteObj.id) ? { ...n, content: newContent } : n); await updateDoc(custRef, { notes: updatedNotes }); if (selectedCustomer && selectedCustomer.id === customerId) { setSelectedCustomer(prev => ({ ...prev, notes: updatedNotes })); } } } catch(e) { console.error(e); alert("編輯失敗"); } };
+  const handleDirectUpdate = async (customerId, updateData) => { if (!customerId || !currentUser) return; try { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'customers', customerId), updateData); } catch(e) {} };
+  const handleBroadcast = async (target, isActive) => { if (!currentUser?.companyCode) { alert("錯誤：系統無法識別公司代碼"); return; } const targetId = (typeof target === 'object' && target?.id) ? target.id : target; if (isActive && !targetId) { alert("無法廣播：找不到該案件/客戶的 ID"); return; } try { const broadcastRef = doc(db, 'artifacts', appId, 'public', 'system', 'broadcast_data', currentUser.companyCode); await setDoc(broadcastRef, { isActive: isActive, targetId: targetId || null, presenterId: currentUser.username, timestamp: serverTimestamp() }); } catch (e) { alert("廣播失敗"); } };
   const handleOverlayClose = (isGlobalClose) => { if (isGlobalClose) handleBroadcast(null, false); else setIncomingBroadcast(null); };
-
   const handleBatchImport = async (importedData) => { if (!currentUser) return; setLoading(true); try { const batchPromises = importedData.map(data => { const safeDate = (val) => { if (!val) return new Date(); let d = new Date(val); if (isNaN(d.getTime()) || d.getFullYear() > 3000 || d.getFullYear() < 1900) return new Date(); return d; }; const cleanData = { ...data, owner: currentUser.username, ownerName: currentUser.name, companyCode: currentUser.companyCode, createdAt: safeDate(data.createdAt), lastContact: typeof data.lastContact === 'string' ? data.lastContact : safeDate(data.createdAt).toISOString().split('T')[0], notes: [], value: data.value ? Number(String(data.value).replace(/,/g, '')) : 0 }; Object.keys(cleanData).forEach(key => { if (cleanData[key] === undefined) delete cleanData[key]; }); return addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'customers'), cleanData); }); await Promise.all(batchPromises); alert(`成功匯入 ${importedData.length} 筆資料`); } catch (error) { alert("匯入失敗"); } finally { setLoading(false); } };
   const handleBatchDelete = async (ids) => { if (!ids.length || !confirm(`刪除 ${ids.length} 筆？`)) return; setLoading(true); try { const batch = writeBatch(db); ids.forEach(id => batch.delete(doc(db, 'artifacts', appId, 'public', 'data', 'customers', id))); await batch.commit(); alert("刪除成功"); } catch (e) { alert("刪除失敗"); } finally { setLoading(false); } };
-
-  // Settings Save (Persistence)
-  const saveAppSettingsToFirestore = async (newSettings) => {
-      if (!currentUser?.companyCode) return;
-      try {
-          const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'company_settings', currentUser.companyCode);
-          await setDoc(docRef, newSettings, { merge: true });
-      } catch (e) { console.error("Settings Save Error", e); }
-  };
-
-  const handleAddOption = (type, val) => { 
-      if (Array.isArray(val) && (type === 'scriveners' || type === 'adWalls')) { 
-          const newSettings = {...appSettings, [type]: val};
-          setAppSettings(newSettings); 
-          if (type === 'adWalls') setAdWalls(val); 
-          saveAppSettingsToFirestore(newSettings);
-          return; 
-      } 
-      if(!val || (appSettings[type] && appSettings[type].includes(val))) return; 
-      const u = [...(appSettings[type] || []), val]; 
-      const newSettings = {...appSettings, [type]: u};
-      setAppSettings(newSettings); 
-      saveAppSettingsToFirestore(newSettings);
-  };
-  
-  const handleDeleteOption = (type, opt) => { 
-      const u = (appSettings[type] || []).filter(i => i !== opt); 
-      const newSettings = {...appSettings, [type]: u};
-      setAppSettings(newSettings); 
-      saveAppSettingsToFirestore(newSettings);
-  };
-  
-  const handleReorderOption = (type, f, t) => { 
-      const l = [...(appSettings[type] || [])]; 
-      const [r] = l.splice(f, 1); l.splice(t, 0, r); 
-      const newSettings = {...appSettings, [type]: l};
-      setAppSettings(newSettings); 
-      saveAppSettingsToFirestore(newSettings);
-  };
-
   const handleResolveAlert = async (id) => { if(!currentUser?.companyCode) return; try { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'system', 'alerts', id)); } catch(e) {} };
   const handleLogout = () => { setCurrentUser(null); localStorage.removeItem('crm-user-profile'); setView('login'); setActiveTab('clients'); setSearchTerm(''); setLoading(false); };
   const saveSettingsToFirestore = async (np, na) => { if(!currentUser?.companyCode)return; const p={}; if(np)p.projects=np; if(na)p.projectAds=na; try{ await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'company_settings', currentUser.companyCode), p, {merge:true}); }catch(e){} };
   const handleSaveAnnouncement = async (t) => { if(!currentUser?.companyCode)return; try{ await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'company_settings', currentUser.companyCode), {announcement:t}, {merge:true}); alert("更新成功"); }catch(e){} };
-  
+  const handleAddOption = (type, val) => { if (Array.isArray(val) && (type === 'scriveners' || type === 'adWalls')) { setAppSettings({...appSettings, [type]: val}); if (type === 'adWalls') setAdWalls(val); return; } if(!val || (appSettings[type] && appSettings[type].includes(val))) return; const u = [...(appSettings[type] || []), val]; setAppSettings({...appSettings, [type]: u}); };
+  const handleDeleteOption = (type, opt) => { const u = (appSettings[type] || []).filter(i => i !== opt); setAppSettings({...appSettings, [type]: u}); };
+  const handleReorderOption = (type, f, t) => { const l = [...(appSettings[type] || [])]; const [r] = l.splice(f, 1); l.splice(t, 0, r); setAppSettings({...appSettings, [type]: l}); };
   const handleUpdateProjects = async (newProjects) => { setCompanyProjects(newProjects); await saveSettingsToFirestore(newProjects, null); };
   const handleAddRegion = () => { if(!newRegionName.trim()||companyProjects[newRegionName])return; const u={...companyProjects,[newRegionName]:[]}; setCompanyProjects(u); saveSettingsToFirestore(u,null); setNewRegionName(''); };
   const handleAddProject = (r) => { const n=newProjectNames[r]; if(!n||!n.trim()||companyProjects[r].includes(n))return; const u={...companyProjects,[r]:[...(companyProjects[r]||[]),n]}; setCompanyProjects(u); saveSettingsToFirestore(u,null); setNewProjectNames({...newProjectNames,[r]:''}); };
@@ -659,12 +485,67 @@ export default function App() {
   const handleDeleteProject = (r,i) => setPendingDelete({type:'project',region:r,item:i});
   const toggleUserStatus = async (u) => { if(currentUser?.role!=='super_admin')return; try{ await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'app_users', u.id), {status:u.status==='suspended'?'active':'suspended'}); }catch(e){} };
   const handleDeleteUser = (u) => setPendingDelete({type:'user',item:u});
-  const handleSaveAd = async () => { if (!adForm.name.trim() || !adManageProject || !currentUser?.companyCode) return; const currentAds = projectAds[adManageProject] || []; const safeCurrentAds = Array.isArray(currentAds) ? currentAds : []; const normalizedAds = safeCurrentAds.map(a => typeof a === 'string' ? { id: Date.now() + Math.random(), name: a, startDate: '', endDate: '' } : a ); let updatedList; if (isEditingAd) { updatedList = normalizedAds.map(a => a.id === adForm.id ? adForm : a); } else { updatedList = [...normalizedAds, { ...adForm, id: Date.now() }]; } const newProjectAds = { ...projectAds, [adManageProject]: updatedList }; setProjectAds(newProjectAds); try { const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'company_settings', currentUser.companyCode); await updateDoc(docRef, { [`projectAds.${adManageProject}`]: updatedList }); } catch (e) { } setAdForm({ id: '', name: '', startDate: '', endDate: '' }); setIsEditingAd(false); };
-  const handleEditAdInit = (a) => { setAdForm(typeof a==='string'?{id:a,name:a,startDate:'',endDate:''}:a); setIsEditingAd(true); };
+  
+  // ★★★ 修正後：廣告存檔邏輯 (支援 cost 與歷史紀錄) ★★★
+  const handleSaveAd = async () => { 
+      if (!adForm.name.trim() || !adManageProject || !currentUser?.companyCode) return; 
+      
+      const currentAds = projectAds[adManageProject] || []; 
+      const safeCurrentAds = Array.isArray(currentAds) ? currentAds : []; 
+      
+      const normalizedAds = safeCurrentAds.map(a => typeof a === 'string' ? { id: Date.now() + Math.random(), name: a, startDate: '', endDate: '', cost: '' } : a ); 
+      let updatedList; 
+      
+      if (isEditingAd) { 
+          updatedList = normalizedAds.map(a => a.id === adForm.id ? adForm : a); 
+      } else { 
+          // 新增廣告推入堆疊最上方
+          updatedList = [{ ...adForm, id: Date.now() }, ...normalizedAds]; 
+      } 
+      
+      const newProjectAds = { ...projectAds, [adManageProject]: updatedList }; 
+      setProjectAds(newProjectAds); 
+      
+      try { 
+          const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'company_settings', currentUser.companyCode); 
+          await updateDoc(docRef, { [`projectAds.${adManageProject}`]: updatedList }); 
+      } catch (e) { 
+          console.error("Ad save failed:", e);
+      } 
+      
+      setAdForm({ id: '', name: '', startDate: '', endDate: '', cost: '' }); 
+      setIsEditingAd(false); 
+  };
+
+  const handleEditAdInit = (a) => { setAdForm(typeof a==='string'?{id:Date.now(),name:a,startDate:'',endDate:'',cost:''}:a); setIsEditingAd(true); };
   const triggerDeleteAd = (i) => setPendingDelete({type:'ad',region:adManageProject,item:i});
-  const handleEditAdFromDashboard = (a,p) => { setAdManageProject(p); setAdForm(typeof a==='string'?{id:a,name:a,startDate:'',endDate:''}:a); setIsEditingAd(true); };
+  const handleEditAdFromDashboard = (a,p) => { setAdManageProject(p); setAdForm(typeof a==='string'?{id:a,name:a,startDate:'',endDate:'',cost:''}:a); setIsEditingAd(true); };
   const handleDeleteAdFromDashboard = (a,p) => setPendingDelete({type:'ad',region:p,item:a});
-  const executeDelete = async () => { if(!pendingDelete) return; const {type,region,item} = pendingDelete; if(type==='user'){ try{await deleteDoc(doc(db,'artifacts',appId,'public','data','app_users',item.id))}catch(e){} } else if(type==='ad'){ let c = projectAds[region] || []; const u = c.filter(a => (a.id ? a.id !== item.id : a !== item)); const newProjectAds = { ...projectAds, [region]: u }; setProjectAds(newProjectAds); if (currentUser?.companyCode) { const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'company_settings', currentUser.companyCode); await updateDoc(docRef, { [`projectAds.${region}`]: u }); } } else { let u={...companyProjects}; if(type==='region') delete u[region]; else u[region]=u[region].filter(p=>p!==item); setCompanyProjects(u); saveSettingsToFirestore(u,null); } setPendingDelete(null); };
+  
+  const executeDelete = async () => { 
+      if(!pendingDelete) return; 
+      const {type,region,item} = pendingDelete; 
+      if(type==='user'){ try{await deleteDoc(doc(db,'artifacts',appId,'public','data','app_users',item.id))}catch(e){} } 
+      else if(type==='ad'){ 
+          let c = projectAds[region] || []; 
+          const u = c.filter(a => (a.id ? a.id !== item.id : a !== item)); 
+          const newProjectAds = { ...projectAds, [region]: u }; 
+          setProjectAds(newProjectAds); 
+          if (currentUser?.companyCode) { 
+              const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'company_settings', currentUser.companyCode); 
+              await updateDoc(docRef, { [`projectAds.${region}`]: u }); 
+          } 
+      } 
+      else { 
+          let u={...companyProjects}; 
+          if(type==='region') delete u[region]; 
+          else u[region]=u[region].filter(p=>p!==item); 
+          setCompanyProjects(u); 
+          saveSettingsToFirestore(u,null); 
+      } 
+      setPendingDelete(null); 
+  };
+
   const handleSaveDeal = async (dealData) => { try{ const id=dealData.id||Date.now().toString(); let ag=dealData.agentName||(dealData.distributions?.[0]?.agentName)||(allUsers.find(u=>u.username===dealData.agent)?.name)||dealData.agent||currentUser?.name||"未知"; const n={...dealData,id,createdAt:dealData.createdAt||new Date().toISOString(),companyCode:currentUser.companyCode,agentName:ag}; await setDoc(doc(db,'artifacts',appId,'public','data','deals',id),n,{merge:true}); alert("已儲存"); }catch(e){alert("失敗");} };
   const handleDeleteDeal = async (id) => { if(!confirm("刪除？"))return; try{await deleteDoc(doc(db,'artifacts',appId,'public','data','deals',id))}catch(e){} };
   
@@ -685,7 +566,7 @@ export default function App() {
 
   return (
     <div className={`min-h-screen w-full transition-colors duration-300 ${darkMode ? 'dark bg-slate-950 text-slate-100' : 'bg-gray-50 text-gray-800'} overflow-x-hidden`} style={{ colorScheme: darkMode ? 'dark' : 'light' }}>
-      {incomingBroadcast && <BroadcastOverlay data={incomingBroadcast} isPresenter={myBroadcastStatus} onClose={handleOverlayClose} />}
+      {incomingBroadcast && <BroadcastOverlay data={incomingBroadcast} isPresenter={myBroadcastStatus} onClose={handleOverlayClose} onView={handleViewFromNotification} />}
       <NotificationModal notifications={notifications} onClose={() => setNotifications([])} onQuickUpdate={handleQuickUpdate} onView={handleViewFromNotification} />
       {view === 'list' && <Marquee text={announcement} darkMode={darkMode} />}
       
@@ -721,7 +602,16 @@ export default function App() {
         <DashboardView 
             saveSettings={saveSettingsToFirestore}
             customers={customers}
-            isAdmin={isAdmin} isSuperAdmin={isSuperAdmin} currentUser={currentUser} darkMode={darkMode} toggleDarkMode={toggleDarkMode} handleLogout={handleLogout} dashboardStats={dashboardStats} dashTimeFrame={dashTimeFrame} setDashTimeFrame={setDashTimeFrame} agentStats={agentStats} companyProjects={companyProjects} projectAds={projectAds} allUsers={allUsers} newRegionName={newRegionName} setNewRegionName={setNewRegionName} newProjectNames={newProjectNames} setNewProjectNames={setNewProjectNames} onAddRegion={handleAddRegion} onDeleteRegion={handleDeleteRegion} onAddProject={handleAddProject} onDeleteProject={handleDeleteProject} onToggleUser={toggleUserStatus} onDeleteUser={handleDeleteUser} onManageAd={setAdManageProject} adManageProject={adManageProject} setAdManageProject={setAdManageProject} adForm={adForm} setAdForm={setAdForm} isEditingAd={isEditingAd} setIsEditingAd={setIsEditingAd} dashboardView={dashboardView} setDashboardView={setDashboardView} handleExportExcel={handleExportExcel} isExporting={isExporting} showExportMenu={showExportMenu} setShowExportMenu={setShowExportMenu} appSettings={appSettings} onAddOption={handleAddOption} onDeleteOption={handleDeleteOption} onReorderOption={handleReorderOption} deals={deals} handleSaveDeal={handleSaveDeal} handleDeleteDeal={handleDeleteDeal} statYear={statYear} setStatYear={setStatYear} statMonth={statMonth} setStatMonth={setStatMonth} onSaveAd={handleSaveAd} onEditAdInit={handleEditAdInit} triggerDeleteAd={triggerDeleteAd} onEditAd={handleEditAdFromDashboard} onDeleteAd={handleDeleteAdFromDashboard} announcement={announcement} onSaveAnnouncement={handleSaveAnnouncement} 
+            isAdmin={isAdmin} isSuperAdmin={isSuperAdmin} currentUser={currentUser} darkMode={darkMode} toggleDarkMode={toggleDarkMode} handleLogout={handleLogout} dashboardStats={dashboardStats} dashTimeFrame={dashTimeFrame} setDashTimeFrame={setDashTimeFrame} agentStats={agentStats} companyProjects={companyProjects} projectAds={projectAds} allUsers={allUsers} newRegionName={newRegionName} setNewRegionName={setNewRegionName} newProjectNames={newProjectNames} setNewProjectNames={setNewProjectNames} onAddRegion={handleAddRegion} onDeleteRegion={handleDeleteRegion} onAddProject={handleAddProject} onDeleteProject={handleDeleteProject} onToggleUser={toggleUserStatus} onDeleteUser={handleDeleteUser} 
+            onManageAd={setAdManageProject} 
+            adManageProject={adManageProject} setAdManageProject={setAdManageProject} adForm={adForm} setAdForm={setAdForm} isEditingAd={isEditingAd} setIsEditingAd={setIsEditingAd} 
+            dashboardView={dashboardView} setDashboardView={setDashboardView} 
+            handleExportExcel={handleExportExcel} isExporting={isExporting} showExportMenu={showExportMenu} setShowExportMenu={setShowExportMenu} 
+            appSettings={appSettings} onAddOption={handleAddOption} onDeleteOption={handleDeleteOption} onReorderOption={handleReorderOption} 
+            deals={deals} handleSaveDeal={handleSaveDeal} handleDeleteDeal={handleDeleteDeal} 
+            statYear={statYear} setStatYear={setStatYear} statMonth={statMonth} setStatMonth={setStatMonth} 
+            onSaveAd={handleSaveAd} // ★ 確保傳遞
+            onEditAdInit={handleEditAdInit} triggerDeleteAd={triggerDeleteAd} onEditAd={handleEditAdFromDashboard} onDeleteAd={handleDeleteAdFromDashboard} announcement={announcement} onSaveAnnouncement={handleSaveAnnouncement} 
             adWalls={adWalls} 
             systemAlerts={systemAlerts}
             onResolveAlert={handleResolveAlert}
@@ -754,7 +644,13 @@ export default function App() {
 
       {pendingDelete && <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[70] flex items-center justify-center p-4"><div className={`w-full max-w-sm p-6 rounded-2xl shadow-2xl transform transition-all ${darkMode ? 'bg-slate-900 text-white' : 'bg-white'}`}><div className="flex items-center gap-3 mb-4 text-red-500"><div className="p-2 bg-red-100 dark:bg-red-900/30 rounded-full"><div className="w-6 h-6 text-red-600">⚠️</div></div><h3 className="text-lg font-bold">確認刪除</h3></div><p className="text-sm opacity-80 mb-6 leading-relaxed">確定要刪除嗎？<br/><span className="text-red-500 font-bold text-xs mt-1 block font-bold">此操作無法復原。</span></p><div className="flex gap-3"><button onClick={() => setPendingDelete(null)} className="flex-1 py-3 rounded-xl font-bold bg-gray-100 dark:bg-slate-800 text-gray-600 dark:text-slate-300 hover:bg-gray-200 transition-colors">取消</button><button onClick={executeDelete} className="flex-1 py-3 rounded-xl font-bold bg-red-600 text-white hover:bg-red-700 shadow-lg shadow-red-600/30 transition-all active:scale-95">確認刪除</button></div></div></div>}
       
-      {adManageProject && <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4"><div className={`w-full max-w-md p-6 rounded-2xl shadow-2xl transform transition-all max-h-[85vh] overflow-y-auto ${darkMode ? 'bg-slate-900 text-white' : 'bg-white'}`}><div className="flex justify-between items-center mb-4 border-b dark:border-slate-800 pb-3"><h3 className="text-lg font-bold flex items-center gap-2">管理廣告: {adManageProject}</h3><button onClick={() => { setAdManageProject(null); setIsEditingAd(false); }} className="p-1 hover:bg-gray-100 dark:hover:bg-slate-800 rounded-full"><X/></button></div><div className="space-y-3 mb-6 bg-gray-50 dark:bg-slate-800/50 p-4 rounded-xl border border-gray-100 dark:border-slate-800"><input value={adForm.name} onChange={(e) => setAdForm({...adForm, name: e.target.value})} className={`w-full px-3 py-2 rounded-lg border text-sm outline-none notranslate ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300 text-gray-900'}`} placeholder="廣告名稱 (如: 591, FB)" autoComplete="off" /><div className="flex gap-2 items-center"><span className="text-xs text-gray-400">起</span><input type="date" value={adForm.startDate} onChange={(e) => setAdForm({...adForm, startDate: e.target.value})} className={`flex-1 px-3 py-2 rounded-lg border text-sm outline-none transition-colors ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300 text-gray-900'}`} /><span className="text-xs text-gray-400">迄</span><input type="date" value={adForm.endDate} onChange={(e) => setAdForm({...adForm, endDate: e.target.value})} className={`flex-1 px-3 py-2 rounded-lg border text-sm outline-none transition-colors ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300 text-gray-900'}`} /></div><button onClick={onSaveAd} className="w-full bg-blue-600 text-white py-2 rounded-lg text-sm font-bold active:scale-95 transition-all shadow-md shadow-blue-600/20">{isEditingAd ? '儲存變更' : '新增廣告'}</button></div><div className="space-y-2">{(projectAds[adManageProject] || []).map((ad, idx) => { const adObj = typeof ad === 'string' ? { id: idx, name: ad, endDate: '' } : ad; return (<div key={adObj.id || idx} className="flex justify-between items-center p-3 rounded-lg border dark:border-slate-800 text-sm hover:border-blue-300 transition-colors"><div><span className="font-bold block">{adObj.name}</span></div><div className="flex gap-1"><button onClick={() => handleEditAdInit(ad)} className="p-2 text-blue-500 hover:bg-blue-50 dark:hover:bg-slate-700 rounded-full"><Edit className="w-4 h-4"/></button><button onClick={() => triggerDeleteAd(adObj)} className="p-2 text-red-500 hover:bg-red-50 dark:hover:bg-slate-700 rounded-full"><Trash2 className="w-4 h-4"/></button></div></div>); })}</div></div></div>}
+      {adManageProject && <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4"><div className={`w-full max-w-md p-6 rounded-2xl shadow-2xl transform transition-all max-h-[85vh] overflow-y-auto ${darkMode ? 'bg-slate-900 text-white' : 'bg-white'}`}><div className="flex justify-between items-center mb-4 border-b dark:border-slate-800 pb-3"><h3 className="text-lg font-bold flex items-center gap-2">管理廣告: {adManageProject}</h3><button onClick={() => { setAdManageProject(null); setIsEditingAd(false); }} className="p-1 hover:bg-gray-100 dark:hover:bg-slate-800 rounded-full"><X/></button></div><div className="space-y-3 mb-6 bg-gray-50 dark:bg-slate-800/50 p-4 rounded-xl border border-gray-100 dark:border-slate-800">
+            {/* ★ 使用下拉選單 ★ */}
+            <select value={adForm.name} onChange={(e) => setAdForm({...adForm, name: e.target.value})} className={`w-full px-3 py-2 rounded-lg border text-sm outline-none transition-colors ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300 text-gray-900'}`}><option value="">請選擇廣告平台</option>{(appSettings.sources || []).map(src => (<option key={src} value={src}>{src}</option>))}</select>
+            <div className="flex gap-2 items-center"><span className="text-xs text-gray-400">起</span><input type="date" value={adForm.startDate} onChange={(e) => setAdForm({...adForm, startDate: e.target.value})} className={`flex-1 px-3 py-2 rounded-lg border text-sm outline-none transition-colors ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300 text-gray-900'}`} /><span className="text-xs text-gray-400">迄</span><input type="date" value={adForm.endDate} onChange={(e) => setAdForm({...adForm, endDate: e.target.value})} className={`flex-1 px-3 py-2 rounded-lg border text-sm outline-none transition-colors ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300 text-gray-900'}`} /></div>
+            {/* ★ 費用輸入 ★ */}
+            <input type="number" value={adForm.cost} onChange={(e) => setAdForm({...adForm, cost: e.target.value})} placeholder="廣告費用 ($)" className={`w-full px-3 py-2 rounded-lg border text-sm outline-none transition-colors ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300 text-gray-900'}`} />
+            <button onClick={handleSaveAd} className="w-full bg-blue-600 text-white py-2 rounded-lg text-sm font-bold active:scale-95 transition-all shadow-md shadow-blue-600/20">{isEditingAd ? '儲存變更' : '新增廣告'}</button></div><div className="space-y-2">{(projectAds[adManageProject] || []).sort((a, b) => new Date(b.startDate || 0) - new Date(a.startDate || 0)).map((ad, idx) => { const adObj = typeof ad === 'string' ? { id: idx, name: ad, endDate: '', cost: 0 } : ad; return (<div key={adObj.id || idx} className="flex justify-between items-center p-3 rounded-lg border dark:border-slate-800 text-sm hover:border-blue-300 transition-colors"><div><div className="flex items-center gap-2"><span className="font-bold">{adObj.name}</span><span className="text-xs bg-green-100 text-green-700 px-2 rounded-full">${Number(adObj.cost || 0).toLocaleString()}</span></div><span className="text-xs text-gray-400">{adObj.startDate || '無'} ~ {adObj.endDate || '無'}</span></div><div className="flex gap-1"><button onClick={() => handleEditAdInit(ad)} className="p-2 text-blue-500 hover:bg-blue-50 dark:hover:bg-slate-700 rounded-full"><Edit className="w-4 h-4"/></button><button onClick={() => triggerDeleteAd(adObj)} className="p-2 text-red-500 hover:bg-red-50 dark:hover:bg-slate-700 rounded-full"><Trash2 className="w-4 h-4"/></button></div></div>); })}</div></div></div>}
 
       {/* 個人資料編輯 Modal */}
       {showProfileModal && (
