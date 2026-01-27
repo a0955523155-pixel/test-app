@@ -3,6 +3,7 @@ import {
   X, Phone, MapPin, Trash2, Edit, Printer, 
   StickyNote, Briefcase, CheckCircle, Plus, Target, CheckSquare, 
   Image as ImageIcon, FileText, Map, Navigation, Layout, UploadCloud, Maximize2, Sliders, AlignCenter, ArrowUp, ArrowDown, User, Save, XCircle
+  // Radio 已移除
 } from 'lucide-react';
 import { STATUS_CONFIG } from '../config/constants';
 
@@ -40,7 +41,7 @@ const ImageLightbox = ({ src, onClose }) => {
     );
 };
 
-const CustomerDetail = ({ customer, allCustomers = [], currentUser, onEdit, onDelete, onAddNote, onDeleteNote, onBack, darkMode, allUsers = [], onEditNote }) => {
+const CustomerDetail = ({ customer, allCustomers = [], currentUser, onEdit, onDelete, onAddNote, onDeleteNote, onEditNote, onBack, darkMode, allUsers = [], onBroadcast, onUpdateCustomer }) => {
     const [noteContent, setNoteContent] = useState('');
     const [activeTab, setActiveTab] = useState('info'); 
     
@@ -59,7 +60,7 @@ const CustomerDetail = ({ customer, allCustomers = [], currentUser, onEdit, onDe
     const [printOptions, setPrintOptions] = useState({
         cover: true, cadastral: true, route: true, location: true, plan: true,
         coverFit: false, 
-        coverPos: 50
+        coverPos: customer.coverImagePosition || 50 
     });
 
     const isSeller = ['賣方', '出租', '出租方'].includes(customer.category);
@@ -84,7 +85,19 @@ const CustomerDetail = ({ customer, allCustomers = [], currentUser, onEdit, onDe
         return "詳洽專員"; 
     };
 
-    const handlePrintClick = () => { setShowPrintModal(true); };
+    const handlePrintClick = () => { 
+        setPrintOptions(prev => ({
+            ...prev,
+            coverPos: customer.coverImagePosition || 50
+        }));
+        setShowPrintModal(true); 
+    };
+
+    const handleSaveCoverPos = () => {
+        if (onUpdateCustomer) {
+            onUpdateCustomer(customer.id, { coverImagePosition: printOptions.coverPos });
+        }
+    };
 
     const handleWatermarkUpload = (e) => {
         const file = e.target.files[0];
@@ -103,8 +116,6 @@ const CustomerDetail = ({ customer, allCustomers = [], currentUser, onEdit, onDe
         return '18px';
     };
 
-    // ... (executePrint and generateImagePage logic remains similar but simplified as per request) ...
-    // Since the user is happy with manual scaling on phone and just wants edit/delete logic, I will keep the print logic robust.
     const executePrint = () => {
         const watermarkText = prompt("請輸入浮水印文字 (預設：綠芽團隊 0800666738)", "綠芽團隊 0800666738") || "綠芽團隊 0800666738";
         const todayStr = new Date().toLocaleDateString('zh-TW', { year: 'numeric', month: '2-digit', day: '2-digit' });
@@ -176,6 +187,7 @@ const CustomerDetail = ({ customer, allCustomers = [], currentUser, onEdit, onDe
 
         const displayCity = customer.city || customer.vendorCity || '高雄市'; 
         const displayArea = customer.reqRegion || customer.vendorDistrict || customer.area || '';
+        
         let displayAddressShort = "";
         if (customer.road) displayAddressShort = customer.road;
         else if (customer.landSection) displayAddressShort = customer.landSection;
@@ -209,26 +221,98 @@ const CustomerDetail = ({ customer, allCustomers = [], currentUser, onEdit, onDe
         win.document.write('<meta name="format-detection" content="telephone=no">');
         win.document.write('<style>');
         win.document.write(`
-            @page { size: A4 portrait; margin: 0; }
-            html, body { margin: 0; padding: 0; font-family: "Microsoft JhengHei", "Noto Sans TC", sans-serif; background: white; -webkit-print-color-adjust: exact; print-color-adjust: exact; width: 100%; height: 100%; counter-reset: page-counter; overflow: visible; }
-            @media print { .no-print { display: none !important; } body { background: white; } }
+            @page { 
+                size: A4 portrait; 
+                margin: 0; 
+            }
+            html, body { 
+                margin: 0; padding: 0; 
+                font-family: "Microsoft JhengHei", "Noto Sans TC", sans-serif; 
+                background: white;
+                -webkit-print-color-adjust: exact; 
+                print-color-adjust: exact;
+                width: 100%; height: 100%; 
+                counter-reset: page-counter;
+                overflow: visible;
+            }
+            
+            @media print {
+                .no-print { display: none !important; visibility: hidden !important; opacity: 0 !important; height: 0 !important; }
+                body { background: white; } 
+            }
+
             .counter::after { content: counter(page-counter); }
-            .page-sheet { width: 210mm; height: 297mm; position: relative; overflow: hidden; box-sizing: border-box; page-break-after: always; counter-increment: page-counter; margin: 0 auto; }
-            .first-page { background: #064e3b; color: #f0fdf4; padding: 6mm 10mm; border: 4px double #d4af37; display: flex; flex-direction: column; }
-            .image-page { background: white; display: flex; justify-content: center; align-items: center; padding: 0; border: none; }
-            .full-page-img { width: 100%; height: 100%; object-fit: contain; z-index: 10; }
-            .image-title-overlay { position: absolute; top: 10px; left: 10px; background: rgba(0,0,0,0.6); color: #fbbf24; padding: 5px 12px; border-radius: 4px; font-size: 14px; font-weight: bold; z-index: 20; }
-            .image-page-footer { position: absolute; bottom: 10px; right: 10px; font-size: 10px; color: #666; font-family: monospace; z-index: 20; background: rgba(255,255,255,0.8); padding: 2px 5px; border-radius: 4px; }
-            .first-page-footer-date { position: absolute; bottom: 5px; right: 10px; font-size: 10px; color: rgba(255,255,255,0.4); font-family: monospace; }
-            .watermark-layer { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%) rotate(-30deg); z-index: 5; pointer-events: none; width: 70%; opacity: 0.15; }
+
+            .page-sheet {
+                width: 210mm;
+                height: 297mm;
+                position: relative;
+                overflow: hidden;
+                box-sizing: border-box;
+                page-break-after: always;
+                counter-increment: page-counter;
+                margin: 0 auto;
+            }
+
+            .first-page {
+                background: #064e3b; 
+                color: #f0fdf4;
+                padding: 6mm 10mm; 
+                border: 4px double #d4af37;
+                display: flex; flex-direction: column;
+            }
+
+            .image-page {
+                background: white; 
+                display: flex; justify-content: center; align-items: center;
+                padding: 0;
+                border: none;
+            }
+
+            .full-page-img {
+                width: 100%; height: 100%;
+                object-fit: contain;
+                z-index: 10;
+            }
+
+            .image-title-overlay {
+                position: absolute; top: 10px; left: 10px;
+                background: rgba(0,0,0,0.6); color: #fbbf24;
+                padding: 5px 12px; border-radius: 4px;
+                font-size: 14px; font-weight: bold;
+                z-index: 20;
+            }
+
+            .image-page-footer {
+                position: absolute; bottom: 10px; right: 10px;
+                font-size: 10px; color: #666;
+                font-family: monospace;
+                z-index: 20;
+                background: rgba(255,255,255,0.8);
+                padding: 2px 5px; border-radius: 4px;
+            }
+
+            .first-page-footer-date {
+                position: absolute; bottom: 5px; right: 10px;
+                font-size: 10px; color: rgba(255,255,255,0.4);
+                font-family: monospace;
+            }
+
+            .watermark-layer {
+                position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%) rotate(-30deg);
+                z-index: 5; pointer-events: none; width: 70%; opacity: 0.15;
+            }
             .watermark-layer img { width: 100%; height: auto; }
+
             .header { border-bottom: 2px double #d4af37; padding-bottom: 5px; margin-bottom: 6px; display: flex; justify-content: space-between; align-items: flex-end; position: relative; z-index: 1; flex-shrink: 0; }
             .header::after { content: '◈'; position: absolute; bottom: -10px; left: 50%; transform: translateX(-50%); color: #d4af37; background: #064e3b; padding: 0 8px; font-size: 12px; }
             .header h1 { margin: 0; font-size: 24px; color: #d4af37; font-weight: 900; letter-spacing: 2px; }
             .header span { font-size: 12px; font-weight: bold; color: #a7f3d0; text-transform: uppercase; letter-spacing: 2px; }
+
             .img-box { margin-bottom: 6px; border: 2px solid #d4af37; border-radius: 4px; overflow: hidden; position: relative; z-index: 1; flex-shrink: 0; }
             .img-title { background: #d4af37; color: #022c22; padding: 4px 8px; font-size: 12px; font-weight: bold; }
             .img-box img { width: 100%; height: 260px; } 
+            
             .title-section { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 6px; position: relative; z-index: 1; flex-shrink: 0; }
             .title-info { width: 60%; }
             .case-name { font-size: 26px; font-weight: 900; color: #ffffff; margin: 0 0 2px 0; line-height: 1.1; }
@@ -236,14 +320,24 @@ const CustomerDetail = ({ customer, allCustomers = [], currentUser, onEdit, onDe
             .price-info { width: 40%; text-align: right; }
             .price-val { font-size: 48px; font-weight: 900; color: #d4af37; line-height: 1; font-family: 'Arial Black', sans-serif; }
             .price-unit { font-size: 18px; color: #fcd34d; }
+
             .specs-box { background: rgba(255,255,255,0.05); border: 1px solid rgba(212, 175, 55, 0.4); border-radius: 8px; padding: 10px; margin-bottom: 6px; position: relative; z-index: 1; flex-shrink: 0; }
             .specs-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; column-gap: 15px; row-gap: 8px; }
             .spec-item { border-bottom: 1px dashed rgba(212, 175, 55, 0.3); padding-bottom: 2px; }
             .spec-label { font-size: 13px; color: #9ca3af; text-transform: uppercase; margin-bottom: 2px; }
             .spec-value { font-size: 18px; font-weight: bold; color: #ffffff; }
-            .highlight-box { background: rgba(212, 175, 55, 0.05); border-left: 4px solid #d4af37; padding: 8px 10px; border-radius: 0 8px 8px 0; margin-bottom: 5px; position: relative; z-index: 1; flex: 1; min-height: 40px; display: flex; flex-direction: column; overflow: hidden; }
+
+            .highlight-box { 
+                background: rgba(212, 175, 55, 0.05); 
+                border-left: 4px solid #d4af37; 
+                padding: 8px 10px; border-radius: 0 8px 8px 0; 
+                margin-bottom: 5px; 
+                position: relative; z-index: 1; 
+                flex: 1; min-height: 40px; display: flex; flex-direction: column; overflow: hidden; 
+            }
             .highlight-title { color: #d4af37; font-weight: bold; margin-bottom: 2px; font-size: 16px; letter-spacing: 1px; display: flex; align-items: center; gap: 5px; flex-shrink: 0; }
             .highlight-content { color: #e5e7eb; line-height: 1.4; font-size: ${calculatedFontSize}; font-weight: bold; white-space: pre-wrap; word-wrap: break-word; flex: 1; overflow: hidden; }
+
             .footer { background: #022c22; color: white; padding: 8px 15px; border-radius: 10px; display: flex; justify-content: space-between; align-items: center; margin-top: 0; border-top: 2px double #d4af37; position: relative; z-index: 1; box-shadow: none; flex-shrink: 0; }
             .agent-info h3 { margin: 0; font-size: 22px; font-weight: 900; color: #ffffff; }
             .agent-info div { color: #d4af37; font-size: 12px; margin-top: 2px; letter-spacing: 2px; text-transform: uppercase; }
@@ -251,6 +345,7 @@ const CustomerDetail = ({ customer, allCustomers = [], currentUser, onEdit, onDe
             .phone { font-size: 48px; font-weight: 900; color: #d4af37 !important; font-family: 'Arial Black', sans-serif; line-height: 1; }
             .phone a { color: #d4af37 !important; text-decoration: none !important; }
             .line-id { color: #a7f3d0; font-size: 14px; margin-top: 4px; font-weight: bold; }
+
             .control-bar { padding: 10px; background: #0f172a; text-align: right; display: flex; justify-content: space-between; align-items: center; color: white; margin-bottom: 20px; }
             .pdf-wrapper { width: 100%; height: 100%; border: none; display: flex; flex-direction: column; position: relative; z-index: 1; }
             .pdf-controls { background: #fffbeb; padding: 5px; text-align: center; border-bottom: 1px solid #d4af37; }
@@ -268,7 +363,7 @@ const CustomerDetail = ({ customer, allCustomers = [], currentUser, onEdit, onDe
             </div>
         `);
 
-        // --- 頁面 1 ---
+        // --- 頁面 1 (首頁：綠底) ---
         win.document.write(`
             <div class="page-sheet first-page">
                 ${watermarkImg ? `<div class="watermark-layer"><img src="${watermarkImg}" /></div>` : ''}
@@ -290,7 +385,7 @@ const CustomerDetail = ({ customer, allCustomers = [], currentUser, onEdit, onDe
             </div>
         `);
 
-        // --- 頁面 2+ ---
+        // --- 頁面 2+ (圖資：白底) ---
         win.document.write(attachmentsHtml);
 
         win.document.write(`
@@ -401,29 +496,12 @@ const CustomerDetail = ({ customer, allCustomers = [], currentUser, onEdit, onDe
     // ★★★ 編輯/刪除回報紀錄 ★★★
     const handleAddNoteSubmit = (e) => { e.preventDefault(); if (!noteContent.trim()) return; onAddNote(customer.id, noteContent); setNoteContent(''); };
     
-    // 初始化編輯模式
-    const startEditNote = (note) => {
-        setEditNoteId(note.id);
-        setEditNoteText(note.content);
-    };
-
-    // 儲存編輯
-    const saveEditNote = (note) => {
-        if (!editNoteText.trim()) return;
-        onEditNote(customer.id, note, editNoteText);
-        setEditNoteId(null);
-        setEditNoteText('');
-    };
-
-    // 取消編輯
-    const cancelEditNote = () => {
-        setEditNoteId(null);
-        setEditNoteText('');
-    };
+    const startEditNote = (note) => { setEditNoteId(note.id); setEditNoteText(note.content); };
+    const saveEditNote = (note) => { if (!editNoteText.trim()) return; onEditNote(customer.id, note, editNoteText); setEditNoteId(null); setEditNoteText(''); };
+    const cancelEditNote = () => { setEditNoteId(null); setEditNoteText(''); };
 
     return (
         <div className={`min-h-screen w-full ${darkMode ? 'bg-slate-950 text-slate-100' : 'bg-gray-50 text-gray-800'}`}>
-            {/* Lightbox 預覽 */}
             {previewImage && <ImageLightbox src={previewImage} onClose={() => setPreviewImage(null)} />}
 
             <div className={`sticky top-0 z-20 px-4 py-4 border-b flex justify-between items-center ${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-gray-200'} shadow-sm`}>
@@ -433,6 +511,8 @@ const CustomerDetail = ({ customer, allCustomers = [], currentUser, onEdit, onDe
                     <StatusBadge status={customer.status} />
                 </div>
                 <div className="flex gap-2">
+                    {/* ★★★ 廣播按鈕已移除 ★★★ */}
+                    
                     {isSeller && (
                         <button onClick={handlePrintClick} className="p-2 text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-full transition-colors flex items-center gap-1 font-bold shadow-sm" title="匯出 PDF">
                             <Printer className="w-5 h-5"/> <span className="hidden sm:inline text-xs">匯出 PDF</span>
@@ -539,7 +619,6 @@ const CustomerDetail = ({ customer, allCustomers = [], currentUser, onEdit, onDe
                     </div>
                 )}
 
-                {/* 智慧配對：案件顯示名稱及區域 */}
                 {activeTab === 'match' && (
                     <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4">
                         <div className="bg-purple-50 dark:bg-purple-900/20 p-4 rounded-xl text-purple-800 dark:text-purple-200 text-sm mb-4"><h3 className="font-bold flex items-center gap-2 mb-1"><Target className="w-4 h-4"/> 配對條件 ({isSeller ? '本案條件' : '需求條件'})</h3><ul className="list-disc list-inside opacity-80 text-xs">{isSeller ? (<><li>本案區域：{customer.reqRegion || customer.assignedRegion}</li><li>本案類型：{customer.propertyType || '未指定'}</li><li>本案坪數：地 {customer.landPing} / 建 {customer.buildPing}</li></>) : (<><li>需求區域：{customer.reqRegion || '不限'} (含歸檔區)</li><li>需求類型：{customer.targetPropertyType || '不限'}</li><li>需求坪數：{customer.minPing || 0} ~ {customer.maxPing || '不限'} 坪</li></>)}</ul></div>
@@ -594,7 +673,7 @@ const CustomerDetail = ({ customer, allCustomers = [], currentUser, onEdit, onDe
                                 <div className="p-2 bg-gray-50 rounded-lg border border-gray-200">
                                     <div className="flex justify-between text-xs text-gray-500 mb-1">
                                         <span>上</span>
-                                        <span>封面位置微調</span>
+                                        <span>封面位置微調 (調整後會自動儲存)</span>
                                         <span>下</span>
                                     </div>
                                     <input 
@@ -603,6 +682,9 @@ const CustomerDetail = ({ customer, allCustomers = [], currentUser, onEdit, onDe
                                         max="100" 
                                         value={printOptions.coverPos} 
                                         onChange={(e) => setPrintOptions({...printOptions, coverPos: Number(e.target.value)})}
+                                        // ★★★ 放開滑鼠/手指時儲存 ★★★
+                                        onMouseUp={handleSaveCoverPos}
+                                        onTouchEnd={handleSaveCoverPos}
                                         className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
                                     />
                                     <div className="text-center text-xs font-bold text-blue-600 mt-1">{printOptions.coverPos}%</div>
