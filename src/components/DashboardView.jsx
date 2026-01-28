@@ -5,9 +5,9 @@ import {
   Plus, Trash2, Edit, Save, X, DollarSign, FileText, Image as ImageIcon,
   Clock, AlertTriangle, CheckCircle, LayoutTemplate, Menu, ChevronDown, 
   ChevronRight, Building2, Monitor, ExternalLink, Megaphone, UserPlus, Sparkles,
-  LayoutGrid, Shield, Briefcase, Filter
+  LayoutGrid, Shield, Briefcase, Filter, User, Database
 } from 'lucide-react';
-import { getFirestore, doc, updateDoc, addDoc, collection, deleteDoc, query, where, getDocs } from 'firebase/firestore'; 
+import { getFirestore, doc, updateDoc, addDoc, collection, deleteDoc, query, where, getDocs, writeBatch } from 'firebase/firestore'; 
 import { appId } from '../config/constants'; 
 import DealForm from './DealForm'; 
 import {
@@ -20,7 +20,7 @@ const REGIONS_DATA = {
     "屏東縣": ["屏東市", "潮州鎮", "東港鎮", "恆春鎮", "萬丹鄉", "長治鄉", "麟洛鄉", "九如鄉", "里港鄉", "鹽埔鄉", "高樹鄉", "萬巒鄉", "內埔鄉", "竹田鄉", "新埤鄉", "枋寮鄉", "新園鄉", "崁頂鄉", "林邊鄉", "南州鄉", "佳冬鄉", "琉球鄉", "車城鄉", "滿州鄉", "枋山鄉", "三地門鄉", "霧台鄉", "瑪家鄉", "泰武鄉", "來義鄉", "春日鄉", "獅子鄉", "牡丹鄉"]
 };
 
-// --- 輔助函式：日期比對 ---
+// --- 輔助函式 ---
 const checkDateMatch = (dateRef, timeFrame, targetYear, targetMonth, targetWeekStr) => {
     if (!dateRef) return false;
     let date;
@@ -49,7 +49,6 @@ const checkDateMatch = (dateRef, timeFrame, targetYear, targetMonth, targetWeekS
     return false;
 };
 
-// --- 廣告效率評級標準 ---
 const getAdEfficiency = (rate) => {
     const percentage = rate * 100;
     if (percentage >= 20) return { label: '🏆 優異', color: 'text-green-600', bg: 'bg-green-100 dark:bg-green-900/30', desc: '留電率 > 20%' };
@@ -57,7 +56,6 @@ const getAdEfficiency = (rate) => {
     return { label: '⚠️ 待加強', color: 'text-red-600', bg: 'bg-red-100 dark:bg-red-900/30', desc: '留電率 < 10%' };
 };
 
-// --- 收合區塊元件 ---
 const MonitorSection = ({ title, count, icon: Icon, children, defaultOpen = false, colorClass = "text-gray-700" }) => {
     const [isOpen, setIsOpen] = useState(defaultOpen);
     return (
@@ -87,7 +85,6 @@ const DashboardView = ({
     statWeek, setStatWeek, onOpenProfile, onOpenSettings
 }) => {
     
-    // --- 防呆預設值 ---
     const safeProjects = companyProjects || {};
     const safeAds = projectAds || {};
     const safeUsers = Array.isArray(allUsers) ? allUsers : [];
@@ -103,20 +100,19 @@ const DashboardView = ({
     const [newScrivener, setNewScrivener] = useState({ name: '', phone: '' });
     const [collapsedRegions, setCollapsedRegions] = useState({});
     
-    // 廣告牆狀態
     const [adWallForm, setAdWallForm] = useState({ city: '高雄市', district: '', road: '', size: '', price: '', expiryDate: '', project: '', googleMapUrl: '' });
     const [isEditingAdWall, setIsEditingAdWall] = useState(false);
     const [editingAdWallId, setEditingAdWallId] = useState(null);
 
-    // 人員管理編輯狀態
     const [editUserModal, setEditUserModal] = useState(false);
     const [editingUserData, setEditingUserData] = useState(null);
-
-    // 右上角選單狀態
     const [isMenuOpen, setIsMenuOpen] = useState(false);
+    
+    // 清除狀態
+    const [cleanStatus, setCleanStatus] = useState({ loading: false, result: '' });
+
     const menuRef = useRef(null);
 
-    // 點擊外部關閉選單
     useEffect(() => {
         const handleClickOutside = (event) => {
             if (menuRef.current && !menuRef.current.contains(event.target)) {
@@ -127,7 +123,74 @@ const DashboardView = ({
         return () => document.removeEventListener("mousedown", handleClickOutside);
     }, []);
 
-    // 代理函式
+    // ★ 補回遺失的函式 1: 資料庫清理 ★
+    const handleScanAndClean = async () => {
+        if (!currentUser?.companyCode) return;
+        if (!confirm("⚠️ 警告：這將會掃描並刪除所有「無效資料」。\n\n判定標準：\n1. 姓名為「未命名」、「未命名匯入」或空白\n2. 電話為「無電話」或空白\n\n確定要執行嗎？")) return;
+
+        setCleanStatus({ loading: true, result: '正在掃描與清理中...' });
+        const db = getFirestore();
+        
+        try {
+            const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'customers'), where("companyCode", "==", currentUser.companyCode));
+            const snapshot = await getDocs(q);
+            
+            const batch = writeBatch(db);
+            let deleteCount = 0;
+            const invalidKeywords = ['未命名', '未命名匯入', '無電話', '', null, undefined];
+
+            snapshot.forEach(doc => {
+                const data = doc.data();
+                const nameInvalid = invalidKeywords.includes(data.name) || !data.name;
+                const phoneInvalid = invalidKeywords.includes(data.phone) || !data.phone;
+
+                if (nameInvalid || phoneInvalid) {
+                    batch.delete(doc.ref);
+                    deleteCount++;
+                }
+            });
+
+            if (deleteCount > 0) {
+                await batch.commit();
+                setCleanStatus({ loading: false, result: `✅ 已成功清除 ${deleteCount} 筆無效資料！` });
+            } else {
+                setCleanStatus({ loading: false, result: '🎉 系統很乾淨，沒有發現無效資料。' });
+            }
+        } catch (error) {
+            console.error("Clean Error:", error);
+            setCleanStatus({ loading: false, result: '❌ 清理失敗：' + error.message });
+        }
+    };
+
+    // ★ 補回遺失的函式 2: AI 產生器 ★
+    const handleAiGenerate = () => {
+        const quotes = ["堅持不是因為看到希望，而是堅持了才看到希望！", "每一份努力，都是在為未來的自己儲蓄。", "業績治百病，成交解千愁！", "相信自己，你是最棒的！", "沒有奇蹟，只有累積。", "再長的路，一步步也能走完。", "專注於目標，而不是障礙。"];
+        const randomQuote = quotes[Math.floor(Math.random() * quotes.length)];
+        setTempAnnouncement(randomQuote);
+    };
+
+    // ★ 補回遺失的函式 3: 廣告牆地圖連結 ★
+    const generateAdWallMapLink = () => {
+        const fullAddr = `${adWallForm.city}${adWallForm.district}${adWallForm.road}`;
+        if (!adWallForm.district || !adWallForm.road) { alert("請先選擇區域並輸入路名"); return; }
+        const link = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(fullAddr)}`;
+        setAdWallForm({ ...adWallForm, googleMapUrl: link });
+    };
+
+    const handleAddScrivener = () => {
+        if (!newScrivener.name || !newScrivener.phone) return alert("請輸入姓名與電話");
+        const currentList = safeAppSettings.scriveners || [];
+        const updated = [...currentList, newScrivener];
+        onAddOption('scriveners', updated);
+        setNewScrivener({ name: '', phone: '' });
+    };
+
+    const handleDeleteScrivener = (index) => {
+        const currentList = safeAppSettings.scriveners || [];
+        const updated = currentList.filter((_, i) => i !== index);
+        onAddOption('scriveners', updated);
+    };
+
     const handleUserSaveProxy = (e) => {
         e.preventDefault();
         alert("請使用 App.jsx 的 handleSaveUser (目前僅為 UI 展示)");
@@ -139,70 +202,71 @@ const DashboardView = ({
         if (file) { 
             if (file.size > 800 * 1024) return alert("圖片太大"); 
             const reader = new FileReader(); 
-            reader.onloadend = () => { 
-                setEditingUserData(prev => ({ ...prev, photoUrl: reader.result })); 
-            }; 
+            reader.onloadend = () => { setEditingUserData(prev => ({ ...prev, photoUrl: reader.result })); }; 
             reader.readAsDataURL(file); 
         } 
     };
 
-    // ★★★ 修正報錯：補上拖曳相關函式 ★★★
-    const handleDragStart = (e, project, sourceRegion) => { 
-        if (!e.dataTransfer) return; 
-        e.dataTransfer.setData('project', project); 
-        e.dataTransfer.setData('sourceRegion', sourceRegion); 
+    // ★ 補回遺失的函式 4: 人員編輯開啟 ★
+    const handleOpenUserEdit = (user) => {
+        if (user) {
+            setEditingUserData(user);
+        } else {
+            setEditingUserData({
+                name: '', phone: '', lineId: '', licenseId: '',
+                username: '', password: '', role: 'user', status: 'active', photoUrl: ''
+            });
+        }
+        setEditUserModal(true);
     };
 
-    const handleDragOver = (e) => { 
-        e.preventDefault(); // 這是必須的，允許放置
+    const handleDragStart = (e, project, sourceRegion) => { if (!e.dataTransfer) return; e.dataTransfer.setData('project', project); e.dataTransfer.setData('sourceRegion', sourceRegion); };
+    const handleDragOver = (e) => { e.preventDefault(); };
+    const handleDrop = (e, targetRegion) => { e.preventDefault(); if (!e.dataTransfer) return; const project = e.dataTransfer.getData('project'); const sourceRegion = e.dataTransfer.getData('sourceRegion'); if (!project || !sourceRegion || sourceRegion === targetRegion) return; if (!saveSettings) return; const updatedProjects = { ...safeProjects }; if (!Array.isArray(updatedProjects[sourceRegion])) updatedProjects[sourceRegion] = []; if (!Array.isArray(updatedProjects[targetRegion])) updatedProjects[targetRegion] = []; updatedProjects[sourceRegion] = updatedProjects[sourceRegion].filter(p => p !== project); if (!updatedProjects[targetRegion].includes(project)) { updatedProjects[targetRegion] = [...updatedProjects[targetRegion], project]; } if (collapsedRegions[targetRegion]) { setCollapsedRegions(prev => ({ ...prev, [targetRegion]: false })); } saveSettings(updatedProjects, null); };
+    const toggleRegion = (region) => { setCollapsedRegions(prev => ({ ...prev, [region]: !prev[region] })); };
+
+    const handleSaveAdWall = () => {
+        if (!adWallForm.district || !adWallForm.road) return alert("請完整填寫地址");
+        const fullAddress = `${adWallForm.city}${adWallForm.district}${adWallForm.road}`;
+        let updatedList;
+        if (isEditingAdWall && editingAdWallId) {
+            updatedList = safeAdWalls.map(w => w.id === editingAdWallId ? { ...adWallForm, address: fullAddress, id: editingAdWallId } : w);
+        } else {
+            const newItem = { ...adWallForm, address: fullAddress, id: Date.now() };
+            updatedList = [...safeAdWalls, newItem];
+        }
+        onAddOption('adWalls', updatedList);
+        resetAdWallForm();
     };
 
-    const handleDrop = (e, targetRegion) => { 
-        e.preventDefault(); 
-        if (!e.dataTransfer) return; 
-        const project = e.dataTransfer.getData('project'); 
-        const sourceRegion = e.dataTransfer.getData('sourceRegion'); 
-        
-        if (!project || !sourceRegion || sourceRegion === targetRegion) return; 
-        if (!saveSettings) return; 
-        
-        const updatedProjects = { ...safeProjects }; 
-        if (!Array.isArray(updatedProjects[sourceRegion])) updatedProjects[sourceRegion] = []; 
-        if (!Array.isArray(updatedProjects[targetRegion])) updatedProjects[targetRegion] = []; 
-        
-        updatedProjects[sourceRegion] = updatedProjects[sourceRegion].filter(p => p !== project); 
-        if (!updatedProjects[targetRegion].includes(project)) { 
-            updatedProjects[targetRegion] = [...updatedProjects[targetRegion], project]; 
-        } 
-        
-        if (collapsedRegions[targetRegion]) { 
-            setCollapsedRegions(prev => ({ ...prev, [targetRegion]: false })); 
-        } 
-        
-        saveSettings(updatedProjects, null); 
+    const resetAdWallForm = () => {
+        setAdWallForm({ city: '高雄市', district: '', road: '', size: '', price: '', expiryDate: '', project: '', googleMapUrl: '' });
+        setIsEditingAdWall(false);
+        setEditingAdWallId(null);
     };
 
-    // --- ★★★ 核心數據計算 (修復：嚴格排除案件客戶) ★★★ ---
+    const handleEditAdWall = (wallItem) => {
+        setAdWallForm({ city: wallItem.city || '高雄市', district: wallItem.district || '', road: wallItem.road || '', size: wallItem.size || '', price: wallItem.price || '', expiryDate: wallItem.expiryDate || '', project: wallItem.project || '', googleMapUrl: wallItem.googleMapUrl || '' });
+        setIsEditingAdWall(true);
+        setEditingAdWallId(wallItem.id);
+    };
+
+    const handleDeleteAdWall = (id) => {
+        if(confirm("確定刪除此廣告牆資料？")) {
+            const updated = safeAdWalls.filter(w => w.id !== id);
+            onAddOption('adWalls', updated);
+            if (id === editingAdWallId) resetAdWallForm();
+        }
+    };
+
     const stats = useMemo(() => {
-        let totalRevenue = 0;
-        let closedCount = 0;
-        let newCasesCount = 0; // 新增案件數 (庫存)
-        let totalNewInquiries = 0; // 新增客源 (廣告流量)
-        
+        let totalRevenue = 0; let closedCount = 0; let newCasesCount = 0; let totalNewInquiries = 0; 
         const marketingStats = {};
-        
-        // 1. 取得動態來源列表
         const defaultSources = ['FB', '591', '帆布', '現場客', '介紹'];
-        const configuredSources = safeAppSettings.sources && safeAppSettings.sources.length > 0 
-            ? safeAppSettings.sources 
-            : defaultSources;
-            
-        configuredSources.forEach(src => {
-            marketingStats[src] = { newLeads: 0, activeLeads: 0, closedDeals: 0 };
-        });
+        const configuredSources = safeAppSettings.sources && safeAppSettings.sources.length > 0 ? safeAppSettings.sources : defaultSources;
+        configuredSources.forEach(src => { marketingStats[src] = { newLeads: 0, activeLeads: 0, closedDeals: 0 }; });
         if (!marketingStats['其他']) marketingStats['其他'] = { newLeads: 0, activeLeads: 0, closedDeals: 0 };
 
-        // 2. 計算業績 (Deals)
         if (Array.isArray(safeDeals)) {
             safeDeals.forEach(d => {
                 const dateRef = d.dealDate || d.signDate || d.date;
@@ -214,142 +278,94 @@ const DashboardView = ({
             });
         }
 
-        // 3. 計算客戶效率數據 (Customers)
         if (Array.isArray(safeCustomers)) {
             safeCustomers.forEach(c => {
                 const isNewLead = checkDateMatch(c.createdAt, dashTimeFrame, statYear, statMonth, statWeek);
-                
-                // ★ 判定是否為案件 (賣方/出租方)
                 const isSellerOrLandlord = ['賣方', '出租', '出租方'].includes(c.category);
 
                 if (isNewLead) {
                     if (isSellerOrLandlord) {
-                        // 如果是案件，只加到庫存數
                         newCasesCount++;
-                        // ★★★ 關鍵：這裡直接 return，絕對不進入下方的廣告統計 ★★★
                         return; 
                     }
-
-                    // --- 只有「買方/承租方」才會執行到這裡 ---
                     totalNewInquiries++;
-
-                    // 歸類來源
                     let rawSrc = c.source || '其他';
                     let srcStr = String(rawSrc).trim(); 
                     let matchedSource = '其他';
                     const lowerSrc = srcStr.toLowerCase();
-                    
-                    // 嘗試匹配來源
-                    if (configuredSources.includes(srcStr)) {
-                        matchedSource = srcStr;
-                    } else {
-                        for (const s of configuredSources) {
-                            if (lowerSrc.includes(s.toLowerCase())) {
-                                matchedSource = s;
-                                break;
-                            }
-                        }
-                    }
-                    
-                    // 若無此來源容器，初始化它
-                    if (!marketingStats[matchedSource]) {
-                        marketingStats[matchedSource] = { newLeads: 0, activeLeads: 0, closedDeals: 0 };
-                    }
-
-                    // 計入廣告流量 (分母)
+                    if (configuredSources.includes(srcStr)) { matchedSource = srcStr; } else { for (const s of configuredSources) { if (lowerSrc.includes(s.toLowerCase())) { matchedSource = s; break; } } }
+                    if (!marketingStats[matchedSource]) { marketingStats[matchedSource] = { newLeads: 0, activeLeads: 0, closedDeals: 0 }; }
                     marketingStats[matchedSource].newLeads++;
-                    
-                    // 定義有效轉化 (留電話/洽談中)
-                    if (['contacting', 'commissioned', 'offer', 'closed'].includes(c.status)) {
-                        marketingStats[matchedSource].activeLeads++;
-                    }
+                    if (['contacting', 'commissioned', 'offer', 'closed'].includes(c.status)) { marketingStats[matchedSource].activeLeads++; }
                 }
             });
         }
 
-        // 4. 計算效率
         Object.keys(marketingStats).forEach(key => {
             const data = marketingStats[key];
             data.conversionRate = data.newLeads > 0 ? (data.activeLeads / data.newLeads) : 0;
             data.efficiency = getAdEfficiency(data.conversionRate);
         });
 
-        // 5. 人員排行榜
         const agentPerf = {};
         safeDeals.forEach(d => {
             const dateRef = d.dealDate || d.signDate || d.date;
             if (checkDateMatch(dateRef, dashTimeFrame, statYear, statMonth, statWeek)) {
-                 const processAgent = (agentList) => {
-                     if(Array.isArray(agentList)) {
-                         agentList.forEach(ag => {
-                             if(ag.user){
-                                 if(!agentPerf[ag.user]) agentPerf[ag.user] = 0;
-                                 agentPerf[ag.user] += parseFloat(String(ag.amount||0).replace(/,/g,'')) || 0;
-                             }
-                         });
-                     }
-                 };
-                 processAgent(d.devAgents);
-                 processAgent(d.salesAgents);
-                 if(d.agentName && !d.devAgents && !d.salesAgents) {
-                     if(!agentPerf[d.agentName]) agentPerf[d.agentName] = 0;
-                     agentPerf[d.agentName] += parseFloat(String(d.subtotal||0).replace(/,/g,'')) || 0;
-                 }
+                 const processAgent = (agentList) => { if(Array.isArray(agentList)) { agentList.forEach(ag => { if(ag.user){ if(!agentPerf[ag.user]) agentPerf[ag.user] = 0; agentPerf[ag.user] += parseFloat(String(ag.amount||0).replace(/,/g,'')) || 0; } }); } };
+                 processAgent(d.devAgents); processAgent(d.salesAgents);
+                 if(d.agentName && !d.devAgents && !d.salesAgents) { if(!agentPerf[d.agentName]) agentPerf[d.agentName] = 0; agentPerf[d.agentName] += parseFloat(String(d.subtotal||0).replace(/,/g,'')) || 0; }
             }
         });
-        const rankedAgents = Object.entries(agentPerf)
-            .map(([name, commission]) => ({ name, commission }))
-            .sort((a,b) => b.commission - a.commission);
+        const rankedAgents = Object.entries(agentPerf).map(([name, commission]) => ({ name, commission })).sort((a,b) => b.commission - a.commission);
 
         return { totalRevenue, closedCount, newCasesCount, totalNewInquiries, marketingStats, rankedAgents };
     }, [safeCustomers, safeDeals, dashTimeFrame, statYear, statMonth, statWeek, safeAppSettings.sources]);
 
-    // ★★★ 計算個別案場的廣告 ROI (優化邏輯) ★★★
     const projectROI = useMemo(() => {
         const result = {};
         Object.keys(safeProjects).forEach(region => {
             const projects = safeProjects[region] || [];
             projects.forEach(proj => {
                 const ads = safeAds[proj] || [];
-                
-                // 1. 計算該案場在本月(或篩選期間)的廣告花費
                 let totalCost = 0;
                 let activeAdsCount = 0;
-                // 這裡假設廣告費是單次投入，如果需要按日期攤提會更複雜，目前先加總所有有效廣告
-                // 或者我們可以只計算「目前有效」的廣告費
                 const today = new Date();
-                
+
                 ads.forEach(ad => {
                      const adObj = typeof ad === 'string' ? { name: ad, cost: 0, startDate: null, endDate: null } : ad;
-                     // 檢查廣告日期是否與篩選區間重疊 (若篩選區間是本月，廣告必須在本月有投放)
-                     // 這裡做一個簡單判定：如果廣告沒有結束日期，或是結束日期晚於現在，就算有效
                      let isActive = true;
                      if (adObj.endDate) {
                          const end = new Date(adObj.endDate);
-                         if (end < today && dashTimeFrame === 'month' && end.getMonth() !== today.getMonth()) {
-                             isActive = false; 
-                         }
+                         if (end < today && dashTimeFrame === 'month' && end.getMonth() !== today.getMonth()) { isActive = false; }
                      }
-                     
                      if (isActive) {
                         totalCost += Number(adObj.cost || 0);
                         activeAdsCount++;
                      }
                 });
 
-                // 2. 計算該案場帶來的客源 (Leads)
                 let relatedLeads = 0;
                 let relatedLeadsWithPhone = 0;
 
                 safeCustomers.forEach(c => {
                     const isBuyer = !['賣方', '出租', '出租方'].includes(c.category);
                     if (isBuyer) {
-                        // 檢查日期：買方建檔日期 (需符合儀表板篩選時間)
                         if (checkDateMatch(c.createdAt, dashTimeFrame, statYear, statMonth, statWeek)) {
-                            // 匹配案名：需求區域或備註包含案名
-                            const searchStr = (c.reqRegion + c.remarks + c.name).toLowerCase();
-                            // ★ 嚴格匹配：只有當客戶備註或區域包含案名時才算
-                            if (searchStr.includes(proj.toLowerCase())) {
+                            const safeReqRegion = c.reqRegion || '';
+                            const safeRemarks = c.remarks || '';
+                            const safeName = c.name || '';
+                            
+                            let projectMatch = false;
+                            if (Array.isArray(c.project)) {
+                                projectMatch = c.project.some(p => p === proj);
+                            } else if (c.project) {
+                                projectMatch = c.project === proj;
+                            }
+
+                            const searchStr = (safeReqRegion + safeRemarks + safeName).toLowerCase();
+                            const keywordMatch = searchStr.includes(proj.toLowerCase());
+
+                            if (projectMatch || keywordMatch) {
                                 relatedLeads++;
                                 if (['contacting', 'offer', 'closed'].includes(c.status)) {
                                     relatedLeadsWithPhone++;
@@ -359,32 +375,65 @@ const DashboardView = ({
                     }
                 });
 
-                const cpl = relatedLeads > 0 ? Math.round(totalCost / relatedLeads) : 0; // Cost Per Lead
+                const cpl = relatedLeads > 0 ? Math.round(totalCost / relatedLeads) : 0; 
                 const conversionRate = relatedLeads > 0 ? ((relatedLeadsWithPhone / relatedLeads) * 100).toFixed(1) : 0;
-
-                result[proj] = {
-                    totalCost,
-                    activeAdsCount,
-                    relatedLeads,
-                    relatedLeadsWithPhone,
-                    cpl,
-                    conversionRate
-                };
+                result[proj] = { totalCost, activeAdsCount, relatedLeads, relatedLeadsWithPhone, cpl, conversionRate };
             });
         });
         return result;
     }, [safeProjects, safeAds, safeCustomers, dashTimeFrame, statYear, statMonth, statWeek]);
 
+    // ★ 補回遺失的計算 5: groupedExpiringItems ★
+    const groupedExpiringItems = useMemo(() => {
+        const today = new Date();
+        const groups = { alerts: [], ads: [], adWalls: [], commission: [], payment: [] };
+        
+        safeAlerts.forEach(alert => { groups.alerts.push({ id: alert.id, name: alert.clientName || '未命名', desc: alert.msg, date: new Date(alert.timestamp?.toDate ? alert.timestamp.toDate() : alert.timestamp).toLocaleDateString(), days: 0 }); });
+        
+        safeCustomers.forEach(c => {
+            if (['賣方', '出租', '出租方'].includes(c.category) && c.commissionEndDate && !c.isRenewed) {
+                const end = new Date(c.commissionEndDate);
+                const diff = Math.ceil((end - today) / 86400000);
+                if (diff <= 30) groups.commission.push({ name: c.name || c.caseName, desc: `委託到期 (${c.ownerName})`, startDate: c.commissionStartDate || '-', endDate: c.commissionEndDate, days: diff });
+            }
+            if (c.scribeDetails && Array.isArray(c.scribeDetails)) {
+                c.scribeDetails.forEach(item => {
+                    if (item.payDate && !item.isPaid) {
+                        const end = new Date(item.payDate);
+                        const diff = Math.ceil((end - today) / 86400000);
+                        if (diff <= 30) groups.payment.push({ name: `${c.name} (${item.item})`, desc: `待付款 (${c.ownerName})`, startDate: c.createdAt?.split('T')[0] || '-', endDate: item.payDate, days: diff });
+                    }
+                });
+            }
+        });
+        
+        Object.entries(safeAds).forEach(([projectName, ads]) => {
+            if (Array.isArray(ads)) { ads.forEach(ad => { const adObj = typeof ad === 'string' ? { name: ad, endDate: '' } : ad; if (adObj.endDate) { const end = new Date(adObj.endDate); const diff = Math.ceil((end - today) / 86400000); groups.ads.push({ name: `${projectName} - ${adObj.name}`, desc: '廣告到期', startDate: adObj.startDate || '-', endDate: adObj.endDate, days: diff }); } }); }
+        });
+        
+        safeAdWalls.forEach(w => { if (w.expiryDate) { const end = new Date(w.expiryDate); const diff = Math.ceil((end - today) / 86400000); groups.adWalls.push({ name: w.address, desc: `廣告牆 (${w.project || '無案場'})`, startDate: '-', endDate: w.expiryDate, days: diff }); } });
+        
+        Object.keys(groups).forEach(key => { if (key !== 'alerts') { groups[key].sort((a,b) => a.days - b.days); } });
+        return groups;
+    }, [safeCustomers, safeAds, safeAdWalls, safeAlerts]);
 
     const pieData = Object.entries(stats.marketingStats).filter(([_, data]) => data.newLeads > 0).map(([name, data]) => ({ name, value: data.newLeads }));
     const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#6b7280', '#0ea5e9', '#ec4899'];
 
+    const renderMonitorItem = (item) => {
+        let dayColor = 'text-green-600';
+        if (item.days < 0) dayColor = 'text-red-600';
+        else if (item.days <= 7) dayColor = 'text-orange-500';
+        return (
+            <div key={item.name + item.endDate} className="flex justify-between items-center p-3 border-b last:border-0 border-gray-100 dark:border-slate-800 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors">
+                <div><div className="font-bold text-sm text-gray-800 dark:text-gray-200">{item.name}</div><div className="text-xs text-gray-500">{item.desc}</div></div>
+                <div className="text-right"><div className={`text-sm font-bold ${dayColor}`}>{item.days < 0 ? `過期 ${Math.abs(item.days)} 天` : `剩 ${item.days} 天`}</div><div className="text-[10px] text-gray-400 font-mono">{item.endDate}</div></div>
+            </div>
+        );
+    };
+
     const NavItem = ({ id, label, icon: Icon }) => (
-        <button 
-            onClick={() => { setDashboardView(id); setIsMenuOpen(false); }}
-            className={`flex items-center gap-3 w-full px-4 py-3 text-sm font-bold transition-all border-b last:border-0 border-gray-100 dark:border-slate-700
-                ${dashboardView === id ? 'bg-blue-50 text-blue-600 dark:bg-slate-700 dark:text-white' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800'}`}
-        >
+        <button onClick={() => { setDashboardView(id); setIsMenuOpen(false); }} className={`flex items-center gap-3 w-full px-4 py-3 text-sm font-bold transition-all border-b last:border-0 border-gray-100 dark:border-slate-700 ${dashboardView === id ? 'bg-blue-50 text-blue-600 dark:bg-slate-700 dark:text-white' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800'}`}>
             <Icon className="w-4 h-4" /> {label}
             {id === 'monitor' && safeAlerts.length > 0 && <span className="w-2 h-2 bg-red-500 rounded-full ml-auto animate-pulse"></span>}
         </button>
@@ -394,7 +443,6 @@ const DashboardView = ({
         <div className="pb-20 w-full">
             {(showDealForm || editingDeal) && <DealForm deal={editingDeal} allUsers={safeUsers} scrivenerOptions={safeAppSettings.scriveners || []} onSave={(data) => { handleSaveDeal(data); setShowDealForm(false); setEditingDeal(null); }} onCancel={() => { setShowDealForm(false); setEditingDeal(null); }} onDelete={(id) => { handleDeleteDeal(id); setShowDealForm(false); setEditingDeal(null); }} />}
 
-            {/* --- 頂部導覽列 --- */}
             <div className={`w-full px-4 pt-8 pb-4 sticky top-0 z-20 border-b transition-colors ${darkMode ? 'bg-slate-950 border-slate-800' : 'bg-gray-50 border-gray-200'}`}>
                 <div className="flex justify-between items-center">
                     <h1 className={`text-2xl font-black ${darkMode ? 'text-white' : 'text-gray-900'} flex items-center gap-2`}>
@@ -407,7 +455,6 @@ const DashboardView = ({
                         {dashboardView === 'users' && '團隊權限管理'}
                         {dashboardView === 'settings' && '系統參數設定'}
                     </h1>
-
                     <div className="flex items-center gap-2" ref={menuRef}>
                         {dashboardView === 'stats' && (
                             <div className="hidden sm:flex items-center gap-2 bg-white dark:bg-slate-800 border dark:border-slate-700 px-3 py-2 rounded-xl shadow-sm mr-2">
@@ -422,12 +469,8 @@ const DashboardView = ({
                                 )}
                             </div>
                         )}
-
                         <div className="relative">
-                            <button onClick={() => setIsMenuOpen(!isMenuOpen)} className="p-2.5 bg-white dark:bg-slate-800 rounded-xl border dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors shadow-sm flex items-center gap-2">
-                                <Menu className="w-5 h-5 text-gray-700 dark:text-gray-200"/>
-                                <span className="hidden sm:inline text-xs font-bold">選單</span>
-                            </button>
+                            <button onClick={() => setIsMenuOpen(!isMenuOpen)} className="p-2.5 bg-white dark:bg-slate-800 rounded-xl border dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors shadow-sm flex items-center gap-2"><Menu className="w-5 h-5 text-gray-700 dark:text-gray-200"/><span className="hidden sm:inline text-xs font-bold">選單</span></button>
                             {isMenuOpen && (
                                 <div className="absolute right-0 top-12 w-48 bg-white dark:bg-slate-800 rounded-xl shadow-2xl border border-gray-100 dark:border-slate-700 overflow-hidden z-50 animate-in fade-in slide-in-from-top-2">
                                     <div className="p-2 bg-gray-50 dark:bg-slate-900 border-b border-gray-100 dark:border-slate-700"><div className="text-xs font-bold text-gray-400 pl-2">功能切換</div></div>
@@ -450,10 +493,8 @@ const DashboardView = ({
             </div>
 
             <div className="px-4 py-4">
-                {/* 1. 數據概況 (STATS) */}
                 {dashboardView === 'stats' && (
                     <div className="space-y-6 animate-in fade-in duration-300">
-                        {/* KPI 卡片 */}
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                             <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl shadow-sm border border-gray-100 dark:border-slate-800 relative overflow-hidden"><div className="text-gray-500 dark:text-gray-400 text-xs font-bold uppercase tracking-wider mb-1">總業績 (Revenue)</div><div className="text-3xl font-black text-gray-800 dark:text-white font-mono tracking-tight">${stats.totalRevenue.toLocaleString()} <span className="text-sm text-gray-400 font-normal">萬</span></div></div>
                             <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl shadow-sm border border-gray-100 dark:border-slate-800 relative overflow-hidden"><div className="text-gray-500 dark:text-gray-400 text-xs font-bold uppercase tracking-wider mb-1">成交件數 (Closed)</div><div className="text-3xl font-black text-gray-800 dark:text-white font-mono tracking-tight">{stats.closedCount} <span className="text-sm text-gray-400 font-normal">件</span></div></div>
@@ -483,10 +524,9 @@ const DashboardView = ({
                             </div>
                         )}
 
-                        {/* ★ 各案場廣告投放與效益 (ROI) ★ */}
                         {(isSuperAdmin || isAdmin) && (
                             <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-sm border border-gray-100 dark:border-slate-800 p-6">
-                                <h3 className="font-bold text-gray-700 dark:text-gray-300 mb-6 flex items-center gap-2"><Megaphone className="w-5 h-5"/> 各案場廣告投放與效益 (ROI)</h3>
+                                <h3 className="font-bold text-gray-700 dark:text-gray-300 mb-6 flex items-center gap-2"><Megaphone className="w-5 h-5"/> 各案場廣告投放與效益 (ROI Analysis)</h3>
                                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                                     {Object.entries(safeProjects).map(([region, projects]) => (
                                         <div key={region} className="space-y-4">
@@ -527,7 +567,7 @@ const DashboardView = ({
                         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                             <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl shadow-sm border border-gray-100 dark:border-slate-800">
                                 <h3 className="font-bold text-gray-700 dark:text-gray-300 mb-6 flex items-center gap-2"><PieChart className="w-5 h-5"/> 客源分佈</h3>
-                                <div className="w-full h-72">
+                                <div className="w-full h-72 min-h-[300px]">
                                     <ResponsiveContainer width="100%" height="100%">
                                         <RechartsPie><Pie data={pieData} innerRadius={60} outerRadius={100} paddingAngle={5} dataKey="value">{pieData.map((entry, index) => <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />)}</Pie><Tooltip contentStyle={{backgroundColor: '#1e293b', border: 'none', borderRadius: '8px', color: '#fff'}} itemStyle={{color: '#fff'}} /><Legend /></RechartsPie>
                                     </ResponsiveContainer>
@@ -552,7 +592,6 @@ const DashboardView = ({
                     </div>
                 )}
                 
-                {/* 2. 時效監控 (MONITOR) */}
                 {dashboardView === 'monitor' && (
                     <div className="space-y-2 animate-in fade-in duration-300">
                         <MonitorSection title="系統警示" count={groupedExpiringItems.alerts.length} icon={AlertTriangle} defaultOpen={true} colorClass="text-red-600">{groupedExpiringItems.alerts.length === 0 ? <p className="text-xs text-gray-400 text-center py-2">無警示</p> : groupedExpiringItems.alerts.map(alert => (<div key={alert.id} className="flex justify-between items-start p-3 border-b border-red-100 last:border-0 bg-red-50 dark:bg-red-900/10 rounded mb-1"><div><p className="text-sm font-bold text-gray-800 dark:text-gray-200">{alert.desc}</p><p className="text-xs text-gray-500">{alert.date}</p></div><button onClick={() => onResolveAlert(alert.id)} className="text-xs bg-white border border-red-200 text-red-600 px-2 py-1 rounded hover:bg-red-100">消除</button></div>))}</MonitorSection>
@@ -563,7 +602,6 @@ const DashboardView = ({
                     </div>
                 )}
                 
-                {/* 3. 廣告牆管理 (ADWALLS) */}
                 {dashboardView === 'adwalls' && (
                     <div className="space-y-6 animate-in fade-in duration-300">
                         <div className={`p-4 rounded-2xl border ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-gray-200'}`}>
@@ -581,7 +619,6 @@ const DashboardView = ({
                     </div>
                 )}
                 
-                {/* 4. 案件與廣告 (PROJECTS) */}
                 {dashboardView === 'projects' && (
                     <div className="space-y-6 animate-in fade-in duration-300">
                         <div className="flex gap-2"><input value={newRegionName} onChange={(e) => setNewRegionName(e.target.value)} placeholder="新分類名稱 (如: 高雄區)" className={`flex-1 px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white'}`} /><button onClick={onAddRegion} className="bg-blue-600 text-white px-4 rounded-lg text-sm font-bold">新增</button></div>
@@ -596,7 +633,6 @@ const DashboardView = ({
                     </div>
                 )}
 
-                {/* 5. 成交管理 (DEALS) */}
                 {dashboardView === 'deals' && (
                     <div className="space-y-4 animate-in fade-in duration-300">
                         <div className="flex justify-end"><button onClick={() => setShowDealForm(true)} className="bg-blue-600 text-white px-4 py-2 rounded-xl font-bold flex items-center gap-2 hover:bg-blue-700 transition-colors"><Plus className="w-4 h-4"/> 新增成交報告</button></div>
@@ -604,7 +640,6 @@ const DashboardView = ({
                     </div>
                 )}
 
-                {/* 6. 人員管理 (USERS) */}
                 {dashboardView === 'users' && isSuperAdmin && (
                     <div className="space-y-4 animate-in fade-in duration-300">
                         <div className={`p-4 rounded-2xl border ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-gray-200'}`}>
@@ -614,9 +649,21 @@ const DashboardView = ({
                     </div>
                 )}
                 
-                {/* 7. 系統設定 (SETTINGS) */}
                 {dashboardView === 'settings' && isAdmin && (
                     <div className="space-y-6 animate-in fade-in duration-300">
+                        {/* 資料庫維護區塊 */}
+                        <div className={`p-4 rounded-2xl border ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-gray-200'}`}>
+                            <h3 className="font-bold mb-3 flex items-center gap-2 text-red-600"><Database className="w-5 h-5"/> 資料庫維護</h3>
+                            <p className="text-sm text-gray-500 mb-3">若匯入失敗導致產生大量無效資料 (無姓名/無電話)，可使用此功能一鍵清除。</p>
+                            
+                            <div className="flex items-center gap-3">
+                                <button onClick={handleScanAndClean} disabled={cleanStatus.loading} className={`px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 ${cleanStatus.loading ? 'bg-gray-300 cursor-not-allowed' : 'bg-red-100 text-red-600 hover:bg-red-200'}`}>
+                                    {cleanStatus.loading ? '處理中...' : <><Trash2 className="w-4 h-4"/> 掃描並刪除無效資料</>}
+                                </button>
+                                {cleanStatus.result && <span className="text-sm font-bold text-blue-600 animate-in fade-in">{cleanStatus.result}</span>}
+                            </div>
+                        </div>
+
                         <div className={`p-4 rounded-2xl border ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-gray-200'}`}><h3 className="font-bold mb-3">跑馬燈公告</h3><div className="flex gap-2"><input value={tempAnnouncement} onChange={(e) => setTempAnnouncement(e.target.value)} className={`flex-1 px-3 py-2 rounded border text-sm ${darkMode ? 'bg-slate-900 border-slate-600' : 'bg-white'}`} /><button onClick={() => onSaveAnnouncement(tempAnnouncement)} className="bg-blue-600 text-white px-4 rounded font-bold text-sm">更新</button><button onClick={handleAiGenerate} className="bg-purple-100 text-purple-700 px-4 rounded font-bold text-sm flex items-center gap-1 hover:bg-purple-200 transition-colors"><Sparkles className="w-3 h-3"/> AI 勉勵</button></div></div>
                         <div className={`p-4 rounded-2xl border ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-gray-200'}`}><h3 className="font-bold mb-3 flex items-center gap-2"><UserPlus className="w-4 h-4"/> 代書資料管理</h3><div className="space-y-2 mb-3">{safeAppSettings.scriveners.map((scr, idx) => (<div key={idx} className="flex justify-between items-center bg-gray-50 dark:bg-slate-900 p-2 rounded"><div className="text-sm font-bold">{scr.name} <span className="font-normal text-gray-500 text-xs">({scr.phone})</span></div><button onClick={() => handleDeleteScrivener(idx)} className="text-red-400 hover:text-red-600"><X className="w-4 h-4"/></button></div>))}</div><div className="flex gap-2"><input value={newScrivener.name} onChange={e => setNewScrivener({...newScrivener, name: e.target.value})} placeholder="代書姓名" className={`flex-1 px-3 py-1 rounded border text-sm ${darkMode ? 'bg-slate-900 border-slate-600' : 'bg-white'}`} /><input value={newScrivener.phone} onChange={e => setNewScrivener({...newScrivener, phone: e.target.value})} placeholder="電話" className={`flex-1 px-3 py-1 rounded border text-sm ${darkMode ? 'bg-slate-900 border-slate-600' : 'bg-white'}`} /><button onClick={handleAddScrivener} className="bg-green-600 text-white px-3 rounded text-xs font-bold">＋</button></div></div>
                         {['sources', 'categories', 'levels'].map(type => (<div key={type} className={`p-4 rounded-2xl border ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-gray-200'}`}><h3 className="font-bold mb-3 capitalize">{type === 'sources' ? '來源' : type === 'categories' ? '分類' : '等級'}設定</h3><div className="flex flex-wrap gap-2 mb-3">{(safeAppSettings[type] || []).map(opt => (<span key={opt} className="bg-blue-50 text-blue-600 px-3 py-1 rounded-full text-xs font-bold flex items-center gap-2">{opt} <button onClick={() => onDeleteOption(type, opt)} className="text-blue-300 hover:text-blue-500">×</button></span>))}</div><div className="flex gap-2"><input id={`input-${type}`} placeholder="新增選項" className={`flex-1 px-3 py-1 rounded border text-xs ${darkMode ? 'bg-slate-900 border-slate-600' : 'bg-white'}`} /><button onClick={() => { const el = document.getElementById(`input-${type}`); onAddOption(type, el.value); el.value=''; }} className="bg-blue-600 text-white px-3 rounded text-xs font-bold">＋</button></div></div>))}
@@ -633,7 +680,6 @@ const DashboardView = ({
                             <button onClick={() => { setAdManageProject(null); setIsEditingAd(false); }} className="p-1 hover:bg-gray-100 dark:hover:bg-slate-800 rounded-full"><X/></button>
                         </div>
                         <div className="space-y-3 mb-6 bg-gray-50 dark:bg-slate-800/50 p-4 rounded-xl border border-gray-100 dark:border-slate-800">
-                            {/* ★ 使用下拉選單 ★ */}
                             <select value={adForm.name} onChange={(e) => setAdForm({...adForm, name: e.target.value})} className={`w-full px-3 py-2 rounded-lg border text-sm outline-none transition-colors ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300 text-gray-900'}`}>
                                 <option value="">請選擇廣告平台</option>
                                 {(appSettings.sources || []).map(src => (
@@ -648,16 +694,14 @@ const DashboardView = ({
                                 <input type="date" value={adForm.endDate} onChange={(e) => setAdForm({...adForm, endDate: e.target.value})} className={`flex-1 px-3 py-2 rounded-lg border text-sm outline-none transition-colors ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300 text-gray-900'}`} />
                             </div>
                             
-                            {/* ★ 費用輸入 ★ */}
                             <input type="number" value={adForm.cost} onChange={(e) => setAdForm({...adForm, cost: e.target.value})} placeholder="廣告費用 ($)" className={`w-full px-3 py-2 rounded-lg border text-sm outline-none transition-colors ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300 text-gray-900'}`} />
                             
                             <button onClick={onSaveAd} className="w-full bg-blue-600 text-white py-2 rounded-lg text-sm font-bold active:scale-95 transition-all shadow-md shadow-blue-600/20">{isEditingAd ? '儲存變更' : '新增廣告'}</button>
                         </div>
                         
-                        {/* ★ 修正：廣告歷史紀錄顯示 ★ */}
                         <div className="space-y-2">
                             {(projectAds[adManageProject] || [])
-                                .sort((a, b) => new Date(b.startDate || 0) - new Date(a.startDate || 0)) // 日期新的在上面
+                                .sort((a, b) => new Date(b.startDate || 0) - new Date(a.startDate || 0))
                                 .map((ad, idx) => { 
                                     const adObj = typeof ad === 'string' ? { id: idx, name: ad, endDate: '', cost: 0 } : ad; 
                                     return (

@@ -126,8 +126,8 @@ const BroadcastOverlay = ({ data, onClose, isPresenter, onView }) => {
     if (!data) return null;
     const [fullScreenImg, setFullScreenImg] = useState(null); 
     const isCase = ['賣方', '出租', '出租方'].includes(data.category);
-    const coverPos = data.coverImagePosition || 50;
-    const statusMap = { 'new': '新案件', 'contacting': '洽談中', 'commissioned': '已委託', 'offer': '已收斡', 'closed': '已成交', 'lost': '已無效' };
+    // ★★★ 修復：補上 isRental 定義 ★★★
+    const isRental = data.category.includes('出租');
     
     const formatDate = (val) => {
         if (!val) return '無紀錄';
@@ -144,6 +144,9 @@ const BroadcastOverlay = ({ data, onClose, isPresenter, onView }) => {
         } 
     };
     
+    const coverPos = data.coverImagePosition || 50;
+    const statusMap = { 'new': '新案件', 'contacting': '洽談中', 'commissioned': '已委託', 'offer': '已收斡', 'closed': '已成交', 'lost': '已無效' };
+
     const attachments = [
         { label: '地籍圖', src: data.imgCadastral },
         { label: '路線圖', src: data.imgRoute },
@@ -425,7 +428,7 @@ export default function App() {
       }
   }, [currentUser]);
 
-  // ★★★ 補回 handleLogin 與 handleRegister ★★★
+  // Handle Login & Register
   const handleLogin = async (username, password) => {
       setLoading(true);
       try {
@@ -458,6 +461,113 @@ export default function App() {
       alert("請聯繫管理員建立帳號");
   };
 
+  // ★★★ 新增：單筆新增客戶 ★★★
+  const handleAddCustomer = async (formData) => {
+      if (!currentUser) return;
+      setLoading(true);
+      try {
+          const cleanData = {
+              ...formData,
+              companyCode: currentUser.companyCode,
+              owner: currentUser.username,
+              ownerName: currentUser.name,
+              createdAt: formData.createdAt ? (formData.createdAt.includes('T') ? formData.createdAt : new Date(formData.createdAt).toISOString()) : new Date().toISOString(),
+              lastContact: new Date().toISOString().split('T')[0],
+              notes: []
+          };
+          
+          Object.keys(cleanData).forEach(key => {
+              if (cleanData[key] === undefined) delete cleanData[key];
+          });
+
+          await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'customers'), cleanData);
+          setView('list');
+      } catch (error) {
+          console.error("Add Customer Error:", error);
+          alert("新增失敗: " + error.message);
+      } finally {
+          setLoading(false);
+      }
+  };
+
+  // ★★★ 修正後的匯入邏輯 (Data Sanitization + 支援專屬欄位 + 陣列修正) ★★★
+  const handleBatchImport = async (importedData) => {
+      if (!currentUser) return;
+      setLoading(true);
+      try {
+          const batchPromises = importedData.map(data => {
+              const safeStr = (val) => val ? String(val).trim() : '';
+
+              // ★ 確保 project 是陣列 (逗號分隔轉陣列)
+              let projectData = [];
+              if (Array.isArray(data.project)) {
+                  projectData = data.project;
+              } else if (data.project) {
+                  const pStr = String(data.project);
+                  if (pStr.includes(',')) {
+                      projectData = pStr.split(',').map(s => s.trim()).filter(s => s);
+                  } else {
+                      projectData = [pStr.trim()];
+                  }
+              }
+
+              // ★ 確保 createdAt 是正確格式
+              // 優先使用 Excel 的 createdAt，沒有就用今天
+              let createdDate = new Date().toISOString();
+              if (data.createdAt) {
+                  // 如果是 ISO 格式或 YYYY-MM-DD，直接用
+                  if (typeof data.createdAt === 'string' && (data.createdAt.includes('T') || data.createdAt.includes('-'))) {
+                      const d = new Date(data.createdAt);
+                      if (!isNaN(d.getTime())) createdDate = d.toISOString();
+                  } 
+              }
+
+              const cleanData = {
+                  ...data,
+                  // 強制覆蓋：綁定當前公司與人員
+                  companyCode: currentUser.companyCode,
+                  owner: currentUser.username,
+                  ownerName: currentUser.name,
+                  
+                  // 防呆補全
+                  name: safeStr(data.name || '未命名'),
+                  reqRegion: safeStr(data.reqRegion),
+                  remarks: safeStr(data.remarks),
+                  category: safeStr(data.category || '買方'),
+                  status: safeStr(data.status || 'new'),
+                  source: safeStr(data.source || '其他'),
+                  
+                  // ★ 存入陣列格式的案場
+                  project: projectData, 
+                  subAgent: safeStr(data.subAgent),
+                  
+                  // 數值處理
+                  value: data.value ? Number(String(data.value).replace(/,/g, '')) : 0,
+                  
+                  // ★ 寫入日期
+                  createdAt: createdDate,
+                  lastContact: createdDate.split('T')[0], // 使用建檔日期當作最後聯繫日
+                  notes: []
+              };
+
+              // 移除 undefined 鍵
+              Object.keys(cleanData).forEach(key => {
+                  if (cleanData[key] === undefined) delete cleanData[key];
+              });
+
+              return addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'customers'), cleanData);
+          });
+
+          await Promise.all(batchPromises);
+          alert(`成功匯入 ${importedData.length} 筆資料`);
+      } catch (error) {
+          console.error("Batch Import Error:", error);
+          alert("匯入失敗: " + error.message);
+      } finally {
+          setLoading(false);
+      }
+  };
+
   const handleCustomerClick = (customer) => { setSelectedCustomer(customer); setView('detail'); };
   const handleViewFromNotification = (customerId) => { const target = customers.find(c => c.id === customerId); if (target) { setSelectedCustomer(target); setView('detail'); setNotifications([]); } else { alert("找不到該客戶資料"); } };
   const handleEditCustomer = async (formData) => { if (selectedCustomer.owner !== currentUser.username && !isAdmin) return alert("無權限"); try { const { id, ...rest } = formData; const updateData = { ...rest }; if (updateData.createdAt) { const d = new Date(updateData.createdAt); if (!isNaN(d.getTime())) { updateData.createdAt = d; } else { delete updateData.createdAt; } } Object.keys(updateData).forEach(key => updateData[key] === undefined && delete updateData[key]); await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'customers', selectedCustomer.id), updateData); setSelectedCustomer({ ...selectedCustomer, ...updateData }); setView('detail'); } catch (e) { alert("儲存失敗"); } };
@@ -469,8 +579,51 @@ export default function App() {
   const handleDirectUpdate = async (customerId, updateData) => { if (!customerId || !currentUser) return; try { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'customers', customerId), updateData); } catch(e) {} };
   const handleBroadcast = async (target, isActive) => { if (!currentUser?.companyCode) { alert("錯誤：系統無法識別公司代碼"); return; } const targetId = (typeof target === 'object' && target?.id) ? target.id : target; if (isActive && !targetId) { alert("無法廣播：找不到該案件/客戶的 ID"); return; } try { const broadcastRef = doc(db, 'artifacts', appId, 'public', 'system', 'broadcast_data', currentUser.companyCode); await setDoc(broadcastRef, { isActive: isActive, targetId: targetId || null, presenterId: currentUser.username, timestamp: serverTimestamp() }); } catch (e) { alert("廣播失敗"); } };
   const handleOverlayClose = (isGlobalClose) => { if (isGlobalClose) handleBroadcast(null, false); else setIncomingBroadcast(null); };
-  const handleBatchImport = async (importedData) => { if (!currentUser) return; setLoading(true); try { const batchPromises = importedData.map(data => { const safeDate = (val) => { if (!val) return new Date(); let d = new Date(val); if (isNaN(d.getTime()) || d.getFullYear() > 3000 || d.getFullYear() < 1900) return new Date(); return d; }; const cleanData = { ...data, owner: currentUser.username, ownerName: currentUser.name, companyCode: currentUser.companyCode, createdAt: safeDate(data.createdAt), lastContact: typeof data.lastContact === 'string' ? data.lastContact : safeDate(data.createdAt).toISOString().split('T')[0], notes: [], value: data.value ? Number(String(data.value).replace(/,/g, '')) : 0 }; Object.keys(cleanData).forEach(key => { if (cleanData[key] === undefined) delete cleanData[key]; }); return addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'customers'), cleanData); }); await Promise.all(batchPromises); alert(`成功匯入 ${importedData.length} 筆資料`); } catch (error) { alert("匯入失敗"); } finally { setLoading(false); } };
-  const handleBatchDelete = async (ids) => { if (!ids.length || !confirm(`刪除 ${ids.length} 筆？`)) return; setLoading(true); try { const batch = writeBatch(db); ids.forEach(id => batch.delete(doc(db, 'artifacts', appId, 'public', 'data', 'customers', id))); await batch.commit(); alert("刪除成功"); } catch (e) { alert("刪除失敗"); } finally { setLoading(false); } };
+  
+  // ★★★ 修正：批次刪除 (權限過濾) ★★★
+  const handleBatchDelete = async (ids) => {
+      if (!ids.length) return;
+      
+      // 1. 找出選中的所有客戶資料
+      const targets = customers.filter(c => ids.includes(c.id));
+      
+      // 2. 篩選出有權限刪除的 ID
+      // 規則：如果是管理員(Admin/SuperAdmin)，可以刪全部；否則只能刪自己名下的
+      const deletableIds = targets
+          .filter(c => isAdmin || c.owner === currentUser.username)
+          .map(c => c.id);
+
+      // 3. 權限檢查與提示
+      if (deletableIds.length === 0) {
+          return alert("您沒有權限刪除這些客戶 (非您名下)。");
+      }
+
+      let confirmMsg = `確定刪除 ${deletableIds.length} 筆資料？`;
+      
+      // 如果選取的數量 > 可刪除的數量，代表有部分被過濾掉了
+      if (deletableIds.length < ids.length) {
+          const skippedCount = ids.length - deletableIds.length;
+          confirmMsg = `您選取了 ${ids.length} 筆，但其中 ${skippedCount} 筆非您名下無法刪除。\n\n確定僅刪除屬於您的 ${deletableIds.length} 筆資料嗎？`;
+      }
+
+      if (!confirm(confirmMsg)) return;
+
+      setLoading(true);
+      try {
+          const batch = writeBatch(db);
+          deletableIds.forEach(id => {
+              batch.delete(doc(db, 'artifacts', appId, 'public', 'data', 'customers', id));
+          });
+          await batch.commit();
+          alert(`成功刪除 ${deletableIds.length} 筆資料`);
+      } catch (e) {
+          console.error(e);
+          alert("刪除失敗");
+      } finally {
+          setLoading(false);
+      }
+  };
+
   const handleResolveAlert = async (id) => { if(!currentUser?.companyCode) return; try { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'system', 'alerts', id)); } catch(e) {} };
   const handleLogout = () => { setCurrentUser(null); localStorage.removeItem('crm-user-profile'); setView('login'); setActiveTab('clients'); setSearchTerm(''); setLoading(false); };
   const saveSettingsToFirestore = async (np, na) => { if(!currentUser?.companyCode)return; const p={}; if(np)p.projects=np; if(na)p.projectAds=na; try{ await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'company_settings', currentUser.companyCode), p, {merge:true}); }catch(e){} };
@@ -486,10 +639,8 @@ export default function App() {
   const toggleUserStatus = async (u) => { if(currentUser?.role!=='super_admin')return; try{ await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'app_users', u.id), {status:u.status==='suspended'?'active':'suspended'}); }catch(e){} };
   const handleDeleteUser = (u) => setPendingDelete({type:'user',item:u});
   
-  // ★★★ 修正後：廣告存檔邏輯 (支援 cost 與歷史紀錄) ★★★
   const handleSaveAd = async () => { 
       if (!adForm.name.trim() || !adManageProject || !currentUser?.companyCode) return; 
-      
       const currentAds = projectAds[adManageProject] || []; 
       const safeCurrentAds = Array.isArray(currentAds) ? currentAds : []; 
       
@@ -499,20 +650,17 @@ export default function App() {
       if (isEditingAd) { 
           updatedList = normalizedAds.map(a => a.id === adForm.id ? adForm : a); 
       } else { 
-          // 新增廣告推入堆疊最上方
           updatedList = [{ ...adForm, id: Date.now() }, ...normalizedAds]; 
       } 
       
       const newProjectAds = { ...projectAds, [adManageProject]: updatedList }; 
       setProjectAds(newProjectAds); 
-      
       try { 
           const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'company_settings', currentUser.companyCode); 
           await updateDoc(docRef, { [`projectAds.${adManageProject}`]: updatedList }); 
       } catch (e) { 
           console.error("Ad save failed:", e);
       } 
-      
       setAdForm({ id: '', name: '', startDate: '', endDate: '', cost: '' }); 
       setIsEditingAd(false); 
   };
@@ -610,7 +758,7 @@ export default function App() {
             appSettings={appSettings} onAddOption={handleAddOption} onDeleteOption={handleDeleteOption} onReorderOption={handleReorderOption} 
             deals={deals} handleSaveDeal={handleSaveDeal} handleDeleteDeal={handleDeleteDeal} 
             statYear={statYear} setStatYear={setStatYear} statMonth={statMonth} setStatMonth={setStatMonth} 
-            onSaveAd={handleSaveAd} // ★ 確保傳遞
+            onSaveAd={handleSaveAd} 
             onEditAdInit={handleEditAdInit} triggerDeleteAd={triggerDeleteAd} onEditAd={handleEditAdFromDashboard} onDeleteAd={handleDeleteAdFromDashboard} announcement={announcement} onSaveAnnouncement={handleSaveAnnouncement} 
             adWalls={adWalls} 
             systemAlerts={systemAlerts}
@@ -644,13 +792,7 @@ export default function App() {
 
       {pendingDelete && <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[70] flex items-center justify-center p-4"><div className={`w-full max-w-sm p-6 rounded-2xl shadow-2xl transform transition-all ${darkMode ? 'bg-slate-900 text-white' : 'bg-white'}`}><div className="flex items-center gap-3 mb-4 text-red-500"><div className="p-2 bg-red-100 dark:bg-red-900/30 rounded-full"><div className="w-6 h-6 text-red-600">⚠️</div></div><h3 className="text-lg font-bold">確認刪除</h3></div><p className="text-sm opacity-80 mb-6 leading-relaxed">確定要刪除嗎？<br/><span className="text-red-500 font-bold text-xs mt-1 block font-bold">此操作無法復原。</span></p><div className="flex gap-3"><button onClick={() => setPendingDelete(null)} className="flex-1 py-3 rounded-xl font-bold bg-gray-100 dark:bg-slate-800 text-gray-600 dark:text-slate-300 hover:bg-gray-200 transition-colors">取消</button><button onClick={executeDelete} className="flex-1 py-3 rounded-xl font-bold bg-red-600 text-white hover:bg-red-700 shadow-lg shadow-red-600/30 transition-all active:scale-95">確認刪除</button></div></div></div>}
       
-      {adManageProject && <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4"><div className={`w-full max-w-md p-6 rounded-2xl shadow-2xl transform transition-all max-h-[85vh] overflow-y-auto ${darkMode ? 'bg-slate-900 text-white' : 'bg-white'}`}><div className="flex justify-between items-center mb-4 border-b dark:border-slate-800 pb-3"><h3 className="text-lg font-bold flex items-center gap-2">管理廣告: {adManageProject}</h3><button onClick={() => { setAdManageProject(null); setIsEditingAd(false); }} className="p-1 hover:bg-gray-100 dark:hover:bg-slate-800 rounded-full"><X/></button></div><div className="space-y-3 mb-6 bg-gray-50 dark:bg-slate-800/50 p-4 rounded-xl border border-gray-100 dark:border-slate-800">
-            {/* ★ 使用下拉選單 ★ */}
-            <select value={adForm.name} onChange={(e) => setAdForm({...adForm, name: e.target.value})} className={`w-full px-3 py-2 rounded-lg border text-sm outline-none transition-colors ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300 text-gray-900'}`}><option value="">請選擇廣告平台</option>{(appSettings.sources || []).map(src => (<option key={src} value={src}>{src}</option>))}</select>
-            <div className="flex gap-2 items-center"><span className="text-xs text-gray-400">起</span><input type="date" value={adForm.startDate} onChange={(e) => setAdForm({...adForm, startDate: e.target.value})} className={`flex-1 px-3 py-2 rounded-lg border text-sm outline-none transition-colors ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300 text-gray-900'}`} /><span className="text-xs text-gray-400">迄</span><input type="date" value={adForm.endDate} onChange={(e) => setAdForm({...adForm, endDate: e.target.value})} className={`flex-1 px-3 py-2 rounded-lg border text-sm outline-none transition-colors ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300 text-gray-900'}`} /></div>
-            {/* ★ 費用輸入 ★ */}
-            <input type="number" value={adForm.cost} onChange={(e) => setAdForm({...adForm, cost: e.target.value})} placeholder="廣告費用 ($)" className={`w-full px-3 py-2 rounded-lg border text-sm outline-none transition-colors ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300 text-gray-900'}`} />
-            <button onClick={handleSaveAd} className="w-full bg-blue-600 text-white py-2 rounded-lg text-sm font-bold active:scale-95 transition-all shadow-md shadow-blue-600/20">{isEditingAd ? '儲存變更' : '新增廣告'}</button></div><div className="space-y-2">{(projectAds[adManageProject] || []).sort((a, b) => new Date(b.startDate || 0) - new Date(a.startDate || 0)).map((ad, idx) => { const adObj = typeof ad === 'string' ? { id: idx, name: ad, endDate: '', cost: 0 } : ad; return (<div key={adObj.id || idx} className="flex justify-between items-center p-3 rounded-lg border dark:border-slate-800 text-sm hover:border-blue-300 transition-colors"><div><div className="flex items-center gap-2"><span className="font-bold">{adObj.name}</span><span className="text-xs bg-green-100 text-green-700 px-2 rounded-full">${Number(adObj.cost || 0).toLocaleString()}</span></div><span className="text-xs text-gray-400">{adObj.startDate || '無'} ~ {adObj.endDate || '無'}</span></div><div className="flex gap-1"><button onClick={() => handleEditAdInit(ad)} className="p-2 text-blue-500 hover:bg-blue-50 dark:hover:bg-slate-700 rounded-full"><Edit className="w-4 h-4"/></button><button onClick={() => triggerDeleteAd(adObj)} className="p-2 text-red-500 hover:bg-red-50 dark:hover:bg-slate-700 rounded-full"><Trash2 className="w-4 h-4"/></button></div></div>); })}</div></div></div>}
+      {adManageProject && <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4"><div className={`w-full max-w-md p-6 rounded-2xl shadow-2xl transform transition-all max-h-[85vh] overflow-y-auto ${darkMode ? 'bg-slate-900 text-white' : 'bg-white'}`}><div className="flex justify-between items-center mb-4 border-b dark:border-slate-800 pb-3"><h3 className="text-lg font-bold flex items-center gap-2">管理廣告: {adManageProject}</h3><button onClick={() => { setAdManageProject(null); setIsEditingAd(false); }} className="p-1 hover:bg-gray-100 dark:hover:bg-slate-800 rounded-full"><X/></button></div><div className="space-y-3 mb-6 bg-gray-50 dark:bg-slate-800/50 p-4 rounded-xl border border-gray-100 dark:border-slate-800"><select value={adForm.name} onChange={(e) => setAdForm({...adForm, name: e.target.value})} className={`w-full px-3 py-2 rounded-lg border text-sm outline-none transition-colors ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300 text-gray-900'}`}><option value="">請選擇廣告平台</option>{(appSettings.sources || []).map(src => (<option key={src} value={src}>{src}</option>))}</select><div className="flex gap-2 items-center"><span className="text-xs text-gray-400">起</span><input type="date" value={adForm.startDate} onChange={(e) => setAdForm({...adForm, startDate: e.target.value})} className={`flex-1 px-3 py-2 rounded-lg border text-sm outline-none transition-colors ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300 text-gray-900'}`} /><span className="text-xs text-gray-400">迄</span><input type="date" value={adForm.endDate} onChange={(e) => setAdForm({...adForm, endDate: e.target.value})} className={`flex-1 px-3 py-2 rounded-lg border text-sm outline-none transition-colors ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300 text-gray-900'}`} /></div><input type="number" value={adForm.cost} onChange={(e) => setAdForm({...adForm, cost: e.target.value})} placeholder="廣告費用 ($)" className={`w-full px-3 py-2 rounded-lg border text-sm outline-none transition-colors ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300 text-gray-900'}`} /><button onClick={handleSaveAd} className="w-full bg-blue-600 text-white py-2 rounded-lg text-sm font-bold active:scale-95 transition-all shadow-md shadow-blue-600/20">{isEditingAd ? '儲存變更' : '新增廣告'}</button></div><div className="space-y-2">{(projectAds[adManageProject] || []).sort((a, b) => new Date(b.startDate || 0) - new Date(a.startDate || 0)).map((ad, idx) => { const adObj = typeof ad === 'string' ? { id: idx, name: ad, endDate: '', cost: 0 } : ad; return (<div key={adObj.id || idx} className="flex justify-between items-center p-3 rounded-lg border dark:border-slate-800 text-sm hover:border-blue-300 transition-colors"><div><div className="flex items-center gap-2"><span className="font-bold">{adObj.name}</span><span className="text-xs bg-green-100 text-green-700 px-2 rounded-full">${Number(adObj.cost || 0).toLocaleString()}</span></div><span className="text-xs text-gray-400">{adObj.startDate || '無'} ~ {adObj.endDate || '無'}</span></div><div className="flex gap-1"><button onClick={() => handleEditAdInit(ad)} className="p-2 text-blue-500 hover:bg-blue-50 dark:hover:bg-slate-700 rounded-full"><Edit className="w-4 h-4"/></button><button onClick={() => triggerDeleteAd(adObj)} className="p-2 text-red-500 hover:bg-red-50 dark:hover:bg-slate-700 rounded-full"><Trash2 className="w-4 h-4"/></button></div></div>); })}</div></div></div>}
 
       {/* 個人資料編輯 Modal */}
       {showProfileModal && (
