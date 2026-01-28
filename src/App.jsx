@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useMemo } from 'react';
-// ★★★ 修正重點：補上 Trash2 ★★★
 import { 
   Loader2, Moon, Sun, LogOut, LayoutDashboard, List, Radio, X, MapPin, Bell, CheckCircle, AlertTriangle, BellRing, UserCircle, Settings, Wrench, Phone, Filter, ChevronDown, ChevronUp, User, Calendar, Tag, Briefcase, Users, StickyNote, Eye, Maximize2, Edit, Trash2
 } from 'lucide-react';
@@ -127,7 +126,16 @@ const BroadcastOverlay = ({ data, onClose, isPresenter, onView }) => {
     if (!data) return null;
     const [fullScreenImg, setFullScreenImg] = useState(null); 
     const isCase = ['賣方', '出租', '出租方'].includes(data.category);
+    const coverPos = data.coverImagePosition || 50;
+    const statusMap = { 'new': '新案件', 'contacting': '洽談中', 'commissioned': '已委託', 'offer': '已收斡', 'closed': '已成交', 'lost': '已無效' };
     
+    const formatDate = (val) => {
+        if (!val) return '無紀錄';
+        if (typeof val === 'string') return val.split('T')[0];
+        if (val.seconds) return new Date(val.seconds * 1000).toISOString().split('T')[0];
+        return '格式錯誤';
+    };
+
     const handleClose = () => { 
         if (isPresenter) { 
             if(confirm("您是廣播發起人，關閉視窗將結束所有人的廣播，確定嗎？")) onClose(true); 
@@ -136,10 +144,6 @@ const BroadcastOverlay = ({ data, onClose, isPresenter, onView }) => {
         } 
     };
     
-    const coverPos = data.coverImagePosition || 50;
-    const statusMap = { 'new': '新案件', 'contacting': '洽談中', 'commissioned': '已委託', 'offer': '已收斡', 'closed': '已成交', 'lost': '已無效' };
-    const formatDate = (val) => { if (!val) return '無紀錄'; if (typeof val === 'string') return val.split('T')[0]; if (val.seconds) return new Date(val.seconds * 1000).toISOString().split('T')[0]; return '格式錯誤'; };
-
     const attachments = [
         { label: '地籍圖', src: data.imgCadastral },
         { label: '路線圖', src: data.imgRoute },
@@ -173,6 +177,7 @@ const BroadcastOverlay = ({ data, onClose, isPresenter, onView }) => {
                                 <div className="inline-block bg-slate-800/80 px-6 py-3 rounded-2xl border border-slate-600"><div className="text-gray-400 text-sm font-bold mb-1 text-center md:text-left">{isCase ? (isRental ? '租金' : '開價') : '預算'}</div><div className="text-4xl sm:text-5xl font-black text-green-400 font-mono tracking-tighter">{isCase ? data.totalPrice : data.value?.toLocaleString()} <span className="text-xl sm:text-2xl ml-2 text-gray-500">{isCase && isRental ? '元' : '萬'}</span></div></div>
                             </div>
                         </div>
+
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                             <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700"><div className="text-gray-500 text-xs mb-1 flex items-center gap-1"><Calendar className="w-3 h-3"/> 建檔日期</div><div className="text-lg font-bold text-white">{formatDate(data.createdAt)}</div></div>
                             <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700"><div className="text-gray-500 text-xs mb-1 flex items-center gap-1"><Calendar className="w-3 h-3"/> 最新回報</div><div className="text-lg font-bold text-yellow-400">{data.lastContact || '無'}</div></div>
@@ -180,11 +185,34 @@ const BroadcastOverlay = ({ data, onClose, isPresenter, onView }) => {
                             {data.industry && <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700"><div className="text-gray-500 text-xs mb-1 flex items-center gap-1"><Briefcase className="w-3 h-3"/> 行業類別</div><div className="text-lg font-bold text-blue-300">{data.industry}</div></div>}
                             {data.serviceItems && <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700 sm:col-span-2 lg:col-span-1"><div className="text-gray-500 text-xs mb-1 flex items-center gap-1"><Tag className="w-3 h-3"/> 服務項目</div><div className="text-lg font-bold text-green-300 truncate">{data.serviceItems}</div></div>}
                         </div>
+
                         <div className="flex flex-col lg:flex-row gap-6 min-h-[300px]">
-                            <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700 flex-1 flex flex-col"><h3 className="text-xl font-bold text-gray-400 mb-4 border-b border-gray-600 pb-2 flex items-center gap-2"><LayoutDashboard className="w-5 h-5"/> 詳細備註</h3><div className="whitespace-pre-wrap leading-relaxed text-gray-200 text-2xl font-medium flex-1 overflow-y-auto max-h-[400px] custom-scrollbar">{data.remarks || "無詳細備註"}</div></div>
-                            <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700 flex-1 flex flex-col"><h3 className="text-xl font-bold text-gray-400 mb-4 border-b border-gray-600 pb-2 flex items-center gap-2"><StickyNote className="w-5 h-5"/> 回報紀錄 ({data.notes?.length || 0})</h3><div className="flex-1 overflow-y-auto space-y-4 pr-2 custom-scrollbar max-h-[400px]">{data.notes && data.notes.length > 0 ? ([...data.notes].reverse().map((note, idx) => (<div key={idx} className="bg-slate-700/50 p-4 rounded-xl border border-slate-600"><div className="flex justify-between items-center mb-2 border-b border-slate-600 pb-2"><span className="text-blue-300 font-bold flex items-center gap-1"><UserCircle className="w-4 h-4"/> {note.author}</span><span className="text-gray-400 text-xs">{note.date}</span></div><div className="text-gray-200 whitespace-pre-wrap text-lg font-medium">{note.content}</div></div>))) : (<div className="text-gray-500 text-center py-10">尚無回報紀錄</div>)}</div></div>
+                            <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700 flex-1 flex flex-col">
+                                <h3 className="text-xl font-bold text-gray-400 mb-4 border-b border-gray-600 pb-2 flex items-center gap-2"><LayoutDashboard className="w-5 h-5"/> 詳細備註</h3>
+                                <div className="whitespace-pre-wrap leading-relaxed text-gray-200 text-2xl font-medium flex-1 overflow-y-auto max-h-[400px] custom-scrollbar">{data.remarks || "無詳細備註"}</div>
+                            </div>
+                            <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700 flex-1 flex flex-col">
+                                <h3 className="text-xl font-bold text-gray-400 mb-4 border-b border-gray-600 pb-2 flex items-center gap-2"><StickyNote className="w-5 h-5"/> 回報紀錄 ({data.notes?.length || 0})</h3>
+                                <div className="flex-1 overflow-y-auto space-y-4 pr-2 custom-scrollbar max-h-[400px]">
+                                    {data.notes && data.notes.length > 0 ? ([...data.notes].reverse().map((note, idx) => (<div key={idx} className="bg-slate-700/50 p-4 rounded-xl border border-slate-600"><div className="flex justify-between items-center mb-2 border-b border-slate-600 pb-2"><span className="text-blue-300 font-bold flex items-center gap-1"><UserCircle className="w-4 h-4"/> {note.author}</span><span className="text-gray-400 text-xs">{note.date}</span></div><div className="text-gray-200 whitespace-pre-wrap text-lg font-medium">{note.content}</div></div>))) : (<div className="text-gray-500 text-center py-10">尚無回報紀錄</div>)}
+                                </div>
+                            </div>
                         </div>
-                        {attachments.length > 0 && (<div className="mt-4 pt-6 border-t border-gray-700"><h3 className="text-xl font-bold text-gray-400 mb-4 flex items-center gap-2"><MapPin className="w-5 h-5"/> 相關圖資 (點擊放大)</h3><div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">{attachments.map((img, idx) => (<div key={idx} className="group relative bg-slate-800 p-2 rounded-xl border border-slate-700 overflow-hidden cursor-pointer hover:border-blue-500 transition-all" onClick={() => setFullScreenImg(img.src)}><div className="absolute top-2 left-2 bg-black/60 px-2 py-1 rounded text-xs font-bold text-white z-10">{img.label}</div>{img.src.startsWith('data:application/pdf') ? ( <div className="w-full h-40 bg-white flex items-center justify-center text-slate-800 text-sm font-bold">PDF 文件</div> ) : ( <img src={img.src} alt={img.label} className="w-full h-40 object-cover rounded-lg group-hover:scale-105 transition-transform duration-300" /> )}<div className="absolute bottom-2 right-2 bg-blue-600/80 p-1.5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"><Maximize2 className="w-4 h-4 text-white"/></div></div>))}</div></div>)}
+
+                        {attachments.length > 0 && (
+                            <div className="mt-4 pt-6 border-t border-gray-700">
+                                <h3 className="text-xl font-bold text-gray-400 mb-4 flex items-center gap-2"><MapPin className="w-5 h-5"/> 相關圖資 (點擊放大)</h3>
+                                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+                                    {attachments.map((img, idx) => (
+                                        <div key={idx} className="group relative bg-slate-800 p-2 rounded-xl border border-slate-700 overflow-hidden cursor-pointer hover:border-blue-500 transition-all" onClick={() => setFullScreenImg(img.src)}>
+                                            <div className="absolute top-2 left-2 bg-black/60 px-2 py-1 rounded text-xs font-bold text-white z-10">{img.label}</div>
+                                            {img.src.startsWith('data:application/pdf') ? ( <div className="w-full h-40 bg-white flex items-center justify-center text-slate-800 text-sm font-bold">PDF 文件</div> ) : ( <img src={img.src} alt={img.label} className="w-full h-40 object-cover rounded-lg group-hover:scale-105 transition-transform duration-300" /> )}
+                                            <div className="absolute bottom-2 right-2 bg-blue-600/80 p-1.5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"><Maximize2 className="w-4 h-4 text-white"/></div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
                     </div>
                 </div>
                 <div className="bg-slate-950 p-3 text-center text-slate-600 text-xs font-mono uppercase tracking-widest border-t border-slate-800 flex-shrink-0">Broadcast Mode • GreenShoot Team</div>
@@ -397,6 +425,39 @@ export default function App() {
       }
   }, [currentUser]);
 
+  // ★★★ 補回 handleLogin 與 handleRegister ★★★
+  const handleLogin = async (username, password) => {
+      setLoading(true);
+      try {
+          const usersRef = collection(db, 'artifacts', appId, 'public', 'data', 'app_users');
+          const q = query(usersRef, where("username", "==", username), where("password", "==", password));
+          const querySnapshot = await getDocs(q);
+
+          if (!querySnapshot.empty) {
+              const userDoc = querySnapshot.docs[0];
+              const userData = { id: userDoc.id, ...userDoc.data() };
+              if (userData.status === 'suspended') {
+                  alert("此帳號已被停權");
+                  setLoading(false);
+                  return;
+              }
+              setCurrentUser(userData);
+              localStorage.setItem('crm-user-profile', JSON.stringify(userData));
+              setView('list');
+          } else {
+              alert("帳號或密碼錯誤");
+          }
+      } catch (error) {
+          console.error("Login Error", error);
+          alert("登入發生錯誤");
+      }
+      setLoading(false);
+  };
+
+  const handleRegister = () => {
+      alert("請聯繫管理員建立帳號");
+  };
+
   const handleCustomerClick = (customer) => { setSelectedCustomer(customer); setView('detail'); };
   const handleViewFromNotification = (customerId) => { const target = customers.find(c => c.id === customerId); if (target) { setSelectedCustomer(target); setView('detail'); setNotifications([]); } else { alert("找不到該客戶資料"); } };
   const handleEditCustomer = async (formData) => { if (selectedCustomer.owner !== currentUser.username && !isAdmin) return alert("無權限"); try { const { id, ...rest } = formData; const updateData = { ...rest }; if (updateData.createdAt) { const d = new Date(updateData.createdAt); if (!isNaN(d.getTime())) { updateData.createdAt = d; } else { delete updateData.createdAt; } } Object.keys(updateData).forEach(key => updateData[key] === undefined && delete updateData[key]); await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'customers', selectedCustomer.id), updateData); setSelectedCustomer({ ...selectedCustomer, ...updateData }); setView('detail'); } catch (e) { alert("儲存失敗"); } };
@@ -425,9 +486,10 @@ export default function App() {
   const toggleUserStatus = async (u) => { if(currentUser?.role!=='super_admin')return; try{ await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'app_users', u.id), {status:u.status==='suspended'?'active':'suspended'}); }catch(e){} };
   const handleDeleteUser = (u) => setPendingDelete({type:'user',item:u});
   
-  // ★★★ 修正後的廣告存檔邏輯 (支援 cost 與歷史紀錄) ★★★
+  // ★★★ 修正後：廣告存檔邏輯 (支援 cost 與歷史紀錄) ★★★
   const handleSaveAd = async () => { 
       if (!adForm.name.trim() || !adManageProject || !currentUser?.companyCode) return; 
+      
       const currentAds = projectAds[adManageProject] || []; 
       const safeCurrentAds = Array.isArray(currentAds) ? currentAds : []; 
       
@@ -437,15 +499,20 @@ export default function App() {
       if (isEditingAd) { 
           updatedList = normalizedAds.map(a => a.id === adForm.id ? adForm : a); 
       } else { 
+          // 新增廣告推入堆疊最上方
           updatedList = [{ ...adForm, id: Date.now() }, ...normalizedAds]; 
       } 
       
       const newProjectAds = { ...projectAds, [adManageProject]: updatedList }; 
       setProjectAds(newProjectAds); 
+      
       try { 
           const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'company_settings', currentUser.companyCode); 
           await updateDoc(docRef, { [`projectAds.${adManageProject}`]: updatedList }); 
-      } catch (e) { console.error("Ad save failed:", e); } 
+      } catch (e) { 
+          console.error("Ad save failed:", e);
+      } 
+      
       setAdForm({ id: '', name: '', startDate: '', endDate: '', cost: '' }); 
       setIsEditingAd(false); 
   };
@@ -543,7 +610,7 @@ export default function App() {
             appSettings={appSettings} onAddOption={handleAddOption} onDeleteOption={handleDeleteOption} onReorderOption={handleReorderOption} 
             deals={deals} handleSaveDeal={handleSaveDeal} handleDeleteDeal={handleDeleteDeal} 
             statYear={statYear} setStatYear={setStatYear} statMonth={statMonth} setStatMonth={setStatMonth} 
-            onSaveAd={handleSaveAd} 
+            onSaveAd={handleSaveAd} // ★ 確保傳遞
             onEditAdInit={handleEditAdInit} triggerDeleteAd={triggerDeleteAd} onEditAd={handleEditAdFromDashboard} onDeleteAd={handleDeleteAdFromDashboard} announcement={announcement} onSaveAnnouncement={handleSaveAnnouncement} 
             adWalls={adWalls} 
             systemAlerts={systemAlerts}
