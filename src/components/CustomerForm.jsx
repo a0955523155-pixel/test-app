@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
     X, Save, Calculator, MapPin, Image as ImageIcon, Users, FolderOpen, Calendar, 
     CreditCard, Plus, Trash2, Warehouse, AlertCircle, Building, UserCheck, Briefcase, 
-    Tag, Map, Navigation, Layout, Grid, FileText 
+    Tag, Map, Navigation, Layout, Grid, FileText, Edit, Wand2
 } from 'lucide-react';
 import { getFirestore, collection, addDoc, serverTimestamp } from 'firebase/firestore'; 
 import { appId, DEFAULT_SOURCES, DEFAULT_CATEGORIES, DEFAULT_LEVELS } from '../config/constants';
@@ -16,12 +16,31 @@ const INDUSTRY_GROUPS = [
     { label: "專業服務", options: ["金融/保險/代書", "不動產服務業", "法律/會計/顧問", "廣告/設計/行銷", "資訊/軟體/通訊", "醫療/保健/生技", "住宿/餐飲業", "教育/補習/培訓"] }
 ];
 
+// ★ 智慧關鍵字對照表
+const INDUSTRY_KEYWORDS = {
+    "吃": "住宿/餐飲業", "喝": "住宿/餐飲業", "餐": "住宿/餐飲業", "飲": "住宿/餐飲業", "飯": "住宿/餐飲業", "麵": "住宿/餐飲業", "茶": "住宿/餐飲業", "酒": "住宿/餐飲業", "雞排": "住宿/餐飲業", "早餐": "住宿/餐飲業",
+    "車": "汽車維修及美容業", "保養": "汽車維修及美容業", "修車": "汽車維修及美容業", "輪胎": "汽車維修及美容業",
+    "機車": "機車維修業",
+    "髮": "美髮及美容美體業", "美容": "美髮及美容美體業", "美甲": "美髮及美容美體業", "SPA": "美髮及美容美體業",
+    "水電": "水電/消防/空調", "冷氣": "水電/消防/空調", "空調": "水電/消防/空調",
+    "裝潢": "房屋修繕/裝潢設計", "設計": "房屋修繕/裝潢設計", "室內": "房屋修繕/裝潢設計", "油漆": "房屋修繕/裝潢設計", "木工": "房屋修繕/裝潢設計",
+    "蓋": "營建工程業", "土木": "營建工程業", "工程": "營建工程業",
+    "清潔": "清潔/環保/廢棄物", "垃圾": "清潔/環保/廢棄物", "回收": "清潔/環保/廢棄物",
+    "搬": "搬家/運輸/倉儲", "貨運": "搬家/運輸/倉儲", "倉儲": "搬家/運輸/倉儲", "物流": "搬家/運輸/倉儲",
+    "農": "農林漁牧業", "魚": "農林漁牧業", "養殖": "農林漁牧業", "種": "農林漁牧業",
+    "工廠": "金屬/機械製造業", "加工": "金屬/機械製造業", "鐵": "金屬/機械製造業", "鋼": "金屬/機械製造業",
+    "網拍": "無店面零售 (網拍)", "直播": "無店面零售 (網拍)", "電商": "無店面零售 (網拍)",
+    "診所": "醫療/保健/生技", "藥": "醫療/保健/生技", "醫": "醫療/保健/生技",
+    "補習": "教育/補習/培訓", "教": "教育/補習/培訓", "學校": "教育/補習/培訓",
+    "代書": "金融/保險/代書", "銀行": "金融/保險/代書", "貸": "金融/保險/代書",
+    "仲介": "不動產服務業", "房": "不動產服務業", "地政": "不動產服務業"
+};
+
 const REGIONS_DATA = {
     "高雄市": ["楠梓區", "左營區", "鼓山區", "三民區", "苓雅區", "新興區", "前金區", "鹽埕區", "前鎮區", "旗津區", "小港區", "鳳山區", "大寮區", "鳥松區", "林園區", "仁武區", "大樹區", "大社區", "岡山區", "路竹區", "橋頭區", "梓官區", "彌陀區", "永安區", "燕巢區", "田寮區", "阿蓮區", "茄萣區", "湖內區", "旗山區", "美濃區", "六龜區", "甲仙區", "杉林區", "內門區", "茂林區", "桃源區", "那瑪夏區"],
     "屏東縣": ["屏東市", "潮州鎮", "東港鎮", "恆春鎮", "萬丹鄉", "長治鄉", "麟洛鄉", "九如鄉", "里港鄉", "鹽埔鄉", "高樹鄉", "萬巒鄉", "內埔鄉", "竹田鄉", "新埤鄉", "枋寮鄉", "新園鄉", "崁頂鄉", "林邊鄉", "南州鄉", "佳冬鄉", "琉球鄉", "車城鄉", "滿州鄉", "枋山鄉", "三地門鄉", "霧台鄉", "瑪家鄉", "泰武鄉", "來義鄉", "春日鄉", "獅子鄉", "牡丹鄉"]
 };
 
-// 圖片壓縮工具
 const compressImage = (file) => {
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
@@ -49,10 +68,11 @@ const compressImage = (file) => {
 };
 
 const CustomerForm = ({ onSubmit, onCancel, initialData, appSettings, companyProjects, allUsers = [], currentUser, customers = [] }) => {
-    const [formData, setFormData] = useState(initialData || {
+    const [formData, setFormData] = useState({
         name: '', phone: '', category: '買方',
         status: 'new', level: 'C', source: '網路廣告',
-        project: '', subAgent: '', assignedAgent: '', 
+        project: [], 
+        subAgent: '', assignedAgent: '', 
         
         industry: '', vendorCity: '高雄市', vendorDistrict: '', serviceItems: '', 
         
@@ -64,7 +84,6 @@ const CustomerForm = ({ onSubmit, onCancel, initialData, appSettings, companyPro
         propertyType: '', totalPrice: '', unitPrice: '', 
         landPing: '', buildPing: '', rightsScope: '', effectivePing: '', 
         
-        // ★★★ 新增 totalFloor (總樓層) ★★★
         floor: '', totalFloor: '', 
         
         completeDate: '', houseAge: '', roadWidth: '', faceWidth: '', depth: '', schoolDist: '', 
@@ -75,6 +94,7 @@ const CustomerForm = ({ onSubmit, onCancel, initialData, appSettings, companyPro
     });
 
     const [selectedIndustries, setSelectedIndustries] = useState([]);
+    const [industryInput, setIndustryInput] = useState('');
     const [showRegionModal, setShowRegionModal] = useState(false); 
     const [showProjectModal, setShowProjectModal] = useState(false); 
     const [isCompressing, setIsCompressing] = useState(false);
@@ -84,8 +104,58 @@ const CustomerForm = ({ onSubmit, onCancel, initialData, appSettings, companyPro
     const projectRegions = Object.keys(companyProjects || {});
     const PROPERTY_TYPES = ["一般住宅", "透天", "大樓/華廈", "工業地", "農地", "建地", "廠房", "商辦", "店面", "其他"];
 
-    useEffect(() => { if (formData.industry) setSelectedIndustries(formData.industry.split(',').filter(Boolean)); }, []);
-    useEffect(() => { setFormData(prev => ({ ...prev, industry: selectedIndustries.join(',') })); }, [selectedIndustries]);
+    // 萬能日期解析
+    const safeDateStr = (dateVal) => {
+        if (!dateVal) return new Date().toISOString().split('T')[0];
+        try {
+            if (dateVal.toDate && typeof dateVal.toDate === 'function') return dateVal.toDate().toISOString().split('T')[0];
+            if (dateVal instanceof Date) return dateVal.toISOString().split('T')[0];
+            if (typeof dateVal === 'string') return dateVal.split('T')[0];
+        } catch (e) {
+            console.error("Date parse error", e);
+        }
+        return new Date().toISOString().split('T')[0];
+    };
+
+    // ★★★ 核心修正：載入舊資料時，同步更新 selectedIndustries ★★★
+    useEffect(() => {
+        if (initialData) {
+            let loadedProjects = [];
+            if (initialData.project) {
+                if (Array.isArray(initialData.project)) {
+                    loadedProjects = initialData.project;
+                } else if (typeof initialData.project === 'string') {
+                    if (initialData.project.includes(',')) {
+                        loadedProjects = initialData.project.split(',').map(p => p.trim());
+                    } else {
+                        loadedProjects = [initialData.project];
+                    }
+                }
+            }
+
+            // ★ 這裡：將字串轉回標籤陣列
+            if (initialData.industry) {
+                setSelectedIndustries(initialData.industry.split(',').filter(s => s.trim()));
+            } else {
+                setSelectedIndustries([]);
+            }
+
+            setFormData({
+                ...initialData,
+                project: loadedProjects,
+                createdAt: safeDateStr(initialData.createdAt),
+                totalFloor: initialData.totalFloor || '',
+                vendorCity: initialData.vendorCity || '高雄市'
+            });
+        }
+    }, [initialData]);
+
+    // ★ 監聽標籤變化，同步回 formData
+    useEffect(() => { 
+        setFormData(prev => ({ ...prev, industry: selectedIndustries.join(',') })); 
+    }, [selectedIndustries]);
+
+    // 其他 Effects
     useEffect(() => { if (formData.completeDate) { const y = new Date(formData.completeDate).getFullYear(); const c = new Date().getFullYear(); if (!isNaN(y)) setFormData(p => ({ ...p, houseAge: (c - y).toString() })); } }, [formData.completeDate]);
     useEffect(() => { setFormData(prev => { let eff = prev.landPing; if (prev.landPing && prev.rightsScope) { try { let r = 1; if (prev.rightsScope.includes('/')) { const [n, d] = prev.rightsScope.split('/'); r = Number(n)/Number(d); } else { r = Number(prev.rightsScope); } if (!isNaN(r)) eff = (Number(prev.landPing) * r).toFixed(2); } catch (e) {} } return { ...prev, effectivePing: eff }; }); }, [formData.landPing, formData.rightsScope]);
 
@@ -125,6 +195,33 @@ const CustomerForm = ({ onSubmit, onCancel, initialData, appSettings, companyPro
         }
     };
 
+    const handleSmartIndustryDetect = () => {
+        if (!industryInput.trim()) return;
+        const text = industryInput.trim();
+        let matched = null;
+        INDUSTRY_GROUPS.forEach(group => {
+            group.options.forEach(opt => {
+                if (text.includes(opt) || opt.includes(text)) matched = opt;
+            });
+        });
+        if (!matched) {
+            Object.entries(INDUSTRY_KEYWORDS).forEach(([key, category]) => {
+                if (text.includes(key)) matched = category;
+            });
+        }
+        if (matched) {
+            if (!selectedIndustries.includes(matched)) {
+                setSelectedIndustries(prev => [...prev, matched]);
+                setFormData(prev => ({ ...prev, serviceItems: prev.serviceItems ? `${prev.serviceItems}, ${text}` : text }));
+                setIndustryInput('');
+            } else {
+                alert(`已經加入「${matched}」了`);
+            }
+        } else {
+            alert("找不到相符的行業，請手動選擇或輸入更具體的關鍵字 (如: 餐廳, 水電, 車)");
+        }
+    };
+
     const addIndustry = (e) => { const val = e.target.value; if (val && !selectedIndustries.includes(val)) setSelectedIndustries([...selectedIndustries, val]); e.target.value = ""; };
     const removeIndustry = (ind) => { setSelectedIndustries(prev => prev.filter(i => i !== ind)); };
     const addScribeItem = () => { setFormData(prev => ({ ...prev, scribeDetails: [...(prev.scribeDetails || []), { item: '', amount: '', payDate: '', method: '', isPaid: false }] })); };
@@ -134,7 +231,8 @@ const CustomerForm = ({ onSubmit, onCancel, initialData, appSettings, companyPro
     
     const toggleRegion = (region) => { let current = formData.reqRegion ? formData.reqRegion.split(',').map(s => s.trim()).filter(Boolean) : []; if (current.includes(region)) current = current.filter(r => r !== region); else current.push(region); setFormData({ ...formData, reqRegion: current.join(',') }); };
     const removeRegion = (regionToRemove) => { let current = formData.reqRegion ? formData.reqRegion.split(',').map(s => s.trim()).filter(Boolean) : []; current = current.filter(r => r !== regionToRemove); setFormData({ ...formData, reqRegion: current.join(',') }); };
-    const toggleProject = (project) => { let current = formData.project ? formData.project.split(',') : []; if (current.includes(project)) current = current.filter(p => p !== project); else current.push(project); setFormData({ ...formData, project: current.join(',') }); };
+    const toggleProject = (project) => { let current = Array.isArray(formData.project) ? [...formData.project] : []; if (current.includes(project)) { current = current.filter(p => p !== project); } else { current.push(project); } setFormData({ ...formData, project: current }); };
+    const removeProject = (projToRemove) => { setFormData(prev => ({ ...prev, project: (prev.project || []).filter(p => p !== projToRemove) })); };
     const generateMapLink = () => { const addr = (formData.road && formData.houseNumber) ? formData.road + formData.houseNumber : (formData.landSection && formData.landNumber) ? formData.landSection + formData.landNumber : formData.landNo; if (!addr) return alert("請先輸入地址或地號資訊"); const link = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(addr)}`; setFormData({ ...formData, googleMapUrl: link }); };
     
     const handleSubmit = async (e) => { e.preventDefault(); if (!initialData && formData.phone && currentUser?.companyCode) { const duplicate = customers.find(c => c.phone === formData.phone); if (duplicate) { try { const db = getFirestore(); await addDoc(collection(db, 'artifacts', appId, 'public', 'system', 'alerts'), { type: 'duplicate_phone', companyCode: currentUser.companyCode, msg: `${currentUser.name} 輸入了重複的電話 (${formData.phone})。原開發者: ${duplicate.ownerName}, 客戶: ${duplicate.name}`, timestamp: serverTimestamp(), agentName: currentUser.name, clientName: formData.name, duplicateId: duplicate.id }); } catch (err) {} } } onSubmit(formData); };
@@ -164,14 +262,7 @@ const CustomerForm = ({ onSubmit, onCancel, initialData, appSettings, companyPro
                 {formData[fieldName] ? renderPreview(formData[fieldName]) : <div className="text-gray-400">{icon}</div>}
             </label>
             {formData[fieldName] && (
-                <button 
-                    type="button"
-                    onClick={(e) => { e.preventDefault(); handleRemoveImage(fieldName); }}
-                    className="absolute top-6 right-1 bg-red-500 text-white p-1 rounded-full shadow hover:bg-red-600 z-10"
-                    title="刪除"
-                >
-                    <X size={12} />
-                </button>
+                <button type="button" onClick={(e) => { e.preventDefault(); handleRemoveImage(fieldName); }} className="absolute top-6 right-1 bg-red-500 text-white p-1 rounded-full shadow hover:bg-red-600 z-10" title="刪除"><X size={12} /></button>
             )}
         </div>
     );
@@ -191,22 +282,65 @@ const CustomerForm = ({ onSubmit, onCancel, initialData, appSettings, companyPro
                              <div><label className="block text-xs font-bold text-gray-500 mb-1">聯絡電話</label><input name="phone" value={formData.phone || ''} onChange={handleChange} className="w-full p-2 rounded-lg border dark:bg-slate-800 dark:border-slate-700 dark:text-white outline-none focus:border-blue-500" placeholder="09xx-xxx-xxx" /></div>
                         </div>
 
-                        {/* 廠商資訊區塊 */}
                         <div className="bg-green-50 dark:bg-green-900/10 p-4 rounded-xl border border-green-100 dark:border-green-900/30">
                             <h3 className="text-sm font-bold text-green-700 dark:text-green-400 mb-3 flex items-center gap-2"><Briefcase className="w-4 h-4"/> 配合廠商資訊 (選填)</h3>
+                            
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-3">
-                                <div><label className="block text-xs font-bold text-gray-500 mb-1">廠商縣市</label><select name="vendorCity" value={formData.vendorCity || '高雄市'} onChange={(e) => setFormData({...formData, vendorCity: e.target.value, vendorDistrict: ''})} className="w-full p-2 rounded-lg border dark:bg-slate-800 dark:border-slate-700 dark:text-white">{Object.keys(REGIONS_DATA).map(c => <option key={c} value={c}>{c}</option>)}</select></div>
-                                <div><label className="block text-xs font-bold text-gray-500 mb-1">廠商地區</label><select name="vendorDistrict" value={formData.vendorDistrict || ''} onChange={handleChange} className="w-full p-2 rounded-lg border dark:bg-slate-800 dark:border-slate-700 dark:text-white"><option value="">請選擇區域</option>{REGIONS_DATA[formData.vendorCity]?.map(d => <option key={d} value={d}>{d}</option>)}</select></div>
+                                <div>
+                                    <label className="block text-xs font-bold text-gray-500 mb-1">廠商縣市</label>
+                                    <select name="vendorCity" value={formData.vendorCity} onChange={(e) => setFormData({...formData, vendorCity: e.target.value, vendorDistrict: ''})} className="w-full p-2 rounded-lg border dark:bg-slate-800 dark:border-slate-700 dark:text-white">
+                                        {Object.keys(REGIONS_DATA).map(c => <option key={c} value={c}>{c}</option>)}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-gray-500 mb-1">廠商地區</label>
+                                    <select name="vendorDistrict" value={formData.vendorDistrict || ''} onChange={handleChange} className="w-full p-2 rounded-lg border dark:bg-slate-800 dark:border-slate-700 dark:text-white">
+                                        <option value="">請選擇區域</option>
+                                        {(REGIONS_DATA[formData.vendorCity] || []).map(d => <option key={d} value={d}>{d}</option>)}
+                                    </select>
+                                </div>
                             </div>
+
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div>
                                     <label className="block text-xs font-bold text-gray-500 mb-1">行業別 (可多選)</label>
+                                    
+                                    <div className="flex gap-2 mb-2">
+                                        <input 
+                                            value={industryInput}
+                                            onChange={(e) => setIndustryInput(e.target.value)}
+                                            onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleSmartIndustryDetect())}
+                                            placeholder="智慧辨識：貼上文字 (如: 賣雞排)"
+                                            className="flex-1 p-2 rounded-lg border text-sm dark:bg-slate-800 dark:border-slate-700 dark:text-white"
+                                        />
+                                        <button type="button" onClick={handleSmartIndustryDetect} className="bg-purple-100 text-purple-700 p-2 rounded-lg hover:bg-purple-200" title="自動辨識行業">
+                                            <Wand2 className="w-4 h-4"/>
+                                        </button>
+                                    </div>
+
                                     <div className="space-y-2">
-                                        <select onChange={addIndustry} className="w-full p-2 rounded-lg border dark:bg-slate-800 dark:border-slate-700 dark:text-white"><option value="">請選擇...</option>{INDUSTRY_GROUPS.map((group, gIdx) => (<optgroup key={gIdx} label={group.label}>{group.options.map(opt => (<option key={opt} value={opt} disabled={selectedIndustries.includes(opt)}>{opt}</option>))}</optgroup>))}</select>
-                                        <div className="flex flex-wrap gap-2 min-h-[30px]">{selectedIndustries.map(ind => (<span key={ind} className="bg-green-200 text-green-800 text-xs px-2 py-1 rounded-md font-bold flex items-center gap-1"><Tag className="w-3 h-3"/>{ind}<button type="button" onClick={() => removeIndustry(ind)} className="hover:text-red-600"><X className="w-3 h-3"/></button></span>))}</div>
+                                        <select onChange={addIndustry} className="w-full p-2 rounded-lg border dark:bg-slate-800 dark:border-slate-700 dark:text-white">
+                                            <option value="">或直接選擇...</option>
+                                            {INDUSTRY_GROUPS.map((group, gIdx) => (
+                                                <optgroup key={gIdx} label={group.label}>
+                                                    {group.options.map(opt => (<option key={opt} value={opt} disabled={selectedIndustries.includes(opt)}>{opt}</option>))}
+                                                </optgroup>
+                                            ))}
+                                        </select>
+                                        <div className="flex flex-wrap gap-2 min-h-[30px]">
+                                            {selectedIndustries.map(ind => (
+                                                <span key={ind} className="bg-green-200 text-green-800 text-xs px-2 py-1 rounded-md font-bold flex items-center gap-1">
+                                                    <Tag className="w-3 h-3"/>{ind}
+                                                    <button type="button" onClick={() => removeIndustry(ind)} className="hover:text-red-600"><X className="w-3 h-3"/></button>
+                                                </span>
+                                            ))}
+                                        </div>
                                     </div>
                                 </div>
-                                <div><label className="block text-xs font-bold text-gray-500 mb-1">服務項目細項 (手動)</label><input name="serviceItems" value={formData.serviceItems || ''} onChange={handleChange} className="w-full p-2 rounded-lg border dark:bg-slate-800 dark:border-slate-700 dark:text-white" placeholder="例如：雞肉切割、冷凍調理..." /></div>
+                                <div>
+                                    <label className="block text-xs font-bold text-gray-500 mb-1">服務項目細項 (手動/自動填入)</label>
+                                    <input name="serviceItems" value={formData.serviceItems || ''} onChange={handleChange} className="w-full p-2 rounded-lg border dark:bg-slate-800 dark:border-slate-700 dark:text-white" placeholder="例如：雞肉切割、冷凍調理..." />
+                                </div>
                             </div>
                         </div>
 
@@ -238,7 +372,6 @@ const CustomerForm = ({ onSubmit, onCancel, initialData, appSettings, companyPro
                                     </div>
                                 </div>
                                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                                    {/* ★★★ 樓層分開顯示：出售樓層 / 總樓層 ★★★ */}
                                     <div className="col-span-1">
                                         <label className="block text-xs font-bold text-gray-500 mb-1">出售樓層 / 總樓層</label>
                                         <div className="flex gap-2">
@@ -267,7 +400,18 @@ const CustomerForm = ({ onSubmit, onCancel, initialData, appSettings, companyPro
                             <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                                 <div><label className="block text-xs font-bold text-gray-500 mb-1">預算</label><input name="value" value={formData.value || ''} onChange={handleChange} className="w-full p-2 rounded-lg border dark:bg-slate-800 dark:border-slate-700 dark:text-white" placeholder="輸入數字" /></div>
                                 <div><label className="block text-xs font-bold text-gray-500 mb-1">需求區域</label><div onClick={() => setShowRegionModal(true)} className="w-full p-2 rounded-lg border dark:bg-slate-800 dark:border-slate-700 dark:text-white cursor-pointer min-h-[42px]">{formData.reqRegion ? formData.reqRegion : <span className="text-gray-400">點擊選擇...</span>}</div></div>
-                                <div><label className="block text-xs font-bold text-gray-500 mb-1">有興趣案場</label><div onClick={() => setShowProjectModal(true)} className="w-full p-2 rounded-lg border dark:bg-slate-800 dark:border-slate-700 dark:text-white cursor-pointer min-h-[42px] text-sm overflow-hidden">{formData.project ? formData.project : <span className="text-gray-400">點擊選擇...</span>}</div></div>
+                                
+                                <div className="col-span-1">
+                                    <label className="block text-xs font-bold text-gray-500 mb-1">有興趣案場 (可多選)</label>
+                                    <div onClick={() => setShowProjectModal(true)} className="w-full p-2 rounded-lg border dark:bg-slate-800 dark:border-slate-700 dark:text-white cursor-pointer min-h-[42px] flex flex-wrap gap-1">
+                                        {Array.isArray(formData.project) && formData.project.length > 0 ? (
+                                            formData.project.map((p, idx) => (
+                                                <span key={idx} className="bg-purple-100 text-purple-700 px-2 py-0.5 rounded text-xs flex items-center gap-1">{p}<button type="button" onClick={(e) => { e.stopPropagation(); removeProject(p); }}><X className="w-3 h-3"/></button></span>
+                                            ))
+                                        ) : <span className="text-gray-400">點擊選擇...</span>}
+                                    </div>
+                                </div>
+                                
                                 <div><label className="block text-xs font-bold text-gray-500 mb-1">次要專員</label><select name="subAgent" value={formData.subAgent || ''} onChange={handleChange} className="w-full p-2 rounded-lg border dark:bg-slate-800 dark:border-slate-700 dark:text-white text-sm"><option value="">無</option>{allUsers.map(u => <option key={u.id || u.name} value={u.name}>{u.name}</option>)}</select></div>
                                 <div><label className="block text-xs font-bold text-gray-500 mb-1">需求類型</label><select name="targetPropertyType" value={formData.targetPropertyType || ''} onChange={handleChange} className="w-full p-2 rounded-lg border dark:bg-slate-800 dark:border-slate-700 dark:text-white"><option value="">不限</option>{PROPERTY_TYPES.map(t => <option key={t} value={t}>{t}</option>)}</select></div>
                                 <div className="col-span-2 md:col-span-3 flex gap-2 items-end"><div className="flex-1"><label className="block text-xs font-bold text-gray-500 mb-1">最小坪數</label><input type="number" name="minPing" value={formData.minPing || ''} onChange={handleChange} className="w-full p-2 rounded-lg border dark:bg-slate-800 dark:border-slate-700 dark:text-white" placeholder="Min" /></div><span className="mb-3 text-gray-400">~</span><div className="flex-1"><label className="block text-xs font-bold text-gray-500 mb-1">最大坪數</label><input type="number" name="maxPing" value={formData.maxPing || ''} onChange={handleChange} className="w-full p-2 rounded-lg border dark:bg-slate-800 dark:border-slate-700 dark:text-white" placeholder="Max" /></div></div>
@@ -284,9 +428,34 @@ const CustomerForm = ({ onSubmit, onCancel, initialData, appSettings, companyPro
                 <div className="p-5 border-t dark:border-slate-800 bg-gray-50 dark:bg-slate-800/50 rounded-b-2xl flex justify-end gap-3"><button type="button" onClick={onCancel} className="px-5 py-2.5 rounded-xl font-bold text-gray-500 hover:bg-gray-200 dark:hover:bg-slate-700 transition-colors">取消</button><button type="submit" form="customerForm" className="px-5 py-2.5 rounded-xl font-bold bg-blue-600 text-white hover:bg-blue-700 shadow-lg shadow-blue-500/30 transition-transform active:scale-95 flex items-center gap-2"><Save className="w-4 h-4" /> 儲存資料</button></div>
             </div>
 
-            {/* Region Modal & Project Modal (省略重複代碼，邏輯相同) */}
+            {/* Region Modal */}
             {showRegionModal && (<div className="fixed inset-0 z-[60] bg-black/60 flex items-center justify-center p-4"><div className="bg-white dark:bg-slate-900 rounded-2xl w-full max-w-lg p-5 max-h-[80vh] overflow-y-auto"><div className="flex justify-between items-center mb-4"><h3 className="font-bold text-lg dark:text-white">選擇區域</h3><button onClick={() => setShowRegionModal(false)}><X/></button></div><div className="mb-4 flex flex-wrap gap-2">{currentRegions.map((region, idx) => (<span key={idx} className="bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded-full flex items-center gap-1 font-bold">{region}<button onClick={() => removeRegion(region)} className="hover:text-red-500"><X className="w-3 h-3"/></button></span>))}</div><div className="space-y-4">{Object.entries(REGIONS_DATA).map(([city, districts]) => (<div key={city}><h4 className="font-bold text-blue-600 mb-2">{city}</h4><div className="grid grid-cols-3 gap-2">{districts.map(d => (<button key={d} type="button" onClick={() => toggleRegion(d)} className={`text-xs p-2 rounded border ${currentRegions.includes(d) ? 'bg-blue-500 text-white border-blue-500' : 'bg-gray-50 text-gray-700 border-gray-200'}`}>{d}</button>))}</div></div>))}</div><button onClick={() => setShowRegionModal(false)} className="w-full mt-4 py-2 bg-blue-600 text-white rounded-lg font-bold">完成</button></div></div>)}
-            {showProjectModal && (<div className="fixed inset-0 z-[60] bg-black/60 flex items-center justify-center p-4"><div className="bg-white dark:bg-slate-900 rounded-2xl w-full max-w-lg p-5 max-h-[80vh] overflow-y-auto"><div className="flex justify-between items-center mb-4"><h3 className="font-bold text-lg dark:text-white">選擇案場</h3><button onClick={() => setShowProjectModal(false)}><X/></button></div><div className="space-y-4">{companyProjects && Object.entries(companyProjects).map(([region, projects]) => (<div key={region}><h4 className="font-bold text-blue-600 mb-2 flex items-center gap-1"><Building className="w-4 h-4"/> {region}</h4><div className="grid grid-cols-2 gap-2">{Array.isArray(projects) && projects.map(p => (<button key={p} type="button" onClick={() => toggleProject(p)} className={`text-xs p-2 rounded border text-left truncate ${formData.project?.includes(p) ? 'bg-blue-500 text-white border-blue-500' : 'bg-gray-50 text-gray-700 border-gray-200'}`}>{p}</button>))}</div></div>))}</div><button onClick={() => setShowProjectModal(false)} className="w-full mt-4 py-2 bg-blue-600 text-white rounded-lg font-bold">完成</button></div></div>)}
+            
+            {/* ★ 案場 Modal (多選邏輯) ★ */}
+            {showProjectModal && (
+                <div className="fixed inset-0 z-[60] bg-black/60 flex items-center justify-center p-4">
+                    <div className="bg-white dark:bg-slate-900 rounded-2xl w-full max-w-lg p-5 max-h-[80vh] overflow-y-auto">
+                        <div className="flex justify-between items-center mb-4"><h3 className="font-bold text-lg dark:text-white">選擇案場 (可多選)</h3><button onClick={() => setShowProjectModal(false)}><X/></button></div>
+                        <div className="space-y-4">
+                            {companyProjects && Object.entries(companyProjects).map(([region, projects]) => (
+                                <div key={region}>
+                                    <h4 className="font-bold text-blue-600 mb-2 flex items-center gap-1"><Building className="w-4 h-4"/> {region}</h4>
+                                    <div className="grid grid-cols-2 gap-2">
+                                        {Array.isArray(projects) && projects.map(p => (
+                                            <button key={p} type="button" onClick={() => toggleProject(p)} 
+                                                className={`text-xs p-2 rounded border text-left truncate ${formData.project?.includes(p) ? 'bg-purple-600 text-white border-purple-600' : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100'}`}
+                                            >
+                                                {p}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                        <button onClick={() => setShowProjectModal(false)} className="w-full mt-4 py-2 bg-blue-600 text-white rounded-lg font-bold">完成</button>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

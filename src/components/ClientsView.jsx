@@ -37,7 +37,18 @@ const ClientsView = ({
 
     const handleCategoryChange = (e) => { setFilterCategory(e.target.value); localStorage.setItem('crm_filter_category', e.target.value); };
     const handleSortChange = (e) => { setSortMode(e.target.value); localStorage.setItem('crm_sort_mode', e.target.value); };
-    const toggleGroup = (groupName) => setExpandedGroups(prev => ({ ...prev, [groupName]: !prev[groupName] }));
+    
+    // ★★★ 修正 1: 智慧切換群組 (支援搜尋時的手動收合) ★★★
+    const toggleGroup = (groupName) => {
+        setExpandedGroups(prev => {
+            // 判斷目前該群組「視覺上」是開還是關
+            // 如果 prev[groupName] 是 undefined，代表使用者還沒點過，這時看 searchTerm 是否有值 (有值預設為開)
+            const isCurrentlyOpen = prev[groupName] !== undefined ? prev[groupName] : (searchTerm !== '');
+            
+            // 設定為相反狀態
+            return { ...prev, [groupName]: !isCurrentlyOpen };
+        });
+    };
 
     const handleDownloadTemplate = () => {
         const template = [{ "姓名": "王小明", "電話": "0912345678", "分類": "買方", "狀態": "new", "等級": "A", "來源": "FB", "區域": "鳳山區", "有興趣的案場": "美術一號院, 遠雄THE ONE", "預算": "1500", "備註": "急尋三房", "建檔日期": "2023-10-01", "次要服務專員": "" }];
@@ -82,7 +93,6 @@ const ClientsView = ({
 
                 const excelDateToJSDate = (serial) => {
                    if (typeof serial === 'string') {
-                       // 支援民國年
                        const rocMatch = serial.trim().match(/^(\d{2,3})[./-](\d{1,2})[./-](\d{1,2})$/);
                        if (rocMatch) {
                            const year = parseInt(rocMatch[1]) + 1911;
@@ -157,7 +167,6 @@ const ClientsView = ({
         return '全部';
     };
 
-    // ★★★ 核心篩選邏輯 (含回報紀錄檢查) ★★★
     const filteredCustomers = useMemo(() => {
         let data = customers.filter(c => {
             const isCase = ['賣方', '出租', '出租方'].includes(c.category);
@@ -171,8 +180,6 @@ const ClientsView = ({
             else if (filterCategory === 'seller') matchCat = ['賣方', '出租', '出租方'].includes(c.category);
 
             let matchTime = true;
-            
-            // 安全取得日期物件
             const safeDate = (d) => {
                 if(!d) return null;
                 const ds = getSafeDateString(d);
@@ -189,7 +196,6 @@ const ClientsView = ({
                 const matchCreated = createdDate && createdDate.getFullYear() === targetYear && (createdDate.getMonth() + 1) === targetMonth;
                 const matchContact = contactDate && contactDate.getFullYear() === targetYear && (contactDate.getMonth() + 1) === targetMonth;
                 
-                // 檢查 Note 是否在本月
                 let matchNote = false;
                 if (Array.isArray(c.notes)) {
                      matchNote = c.notes.some(n => {
@@ -200,10 +206,9 @@ const ClientsView = ({
                 matchTime = matchCreated || matchContact || matchNote;
 
             } else if (listMode === 'week') {
-                // 計算本週範圍
-                const targetDate = new Date(listWeekDate); // 選擇的週
+                const targetDate = new Date(listWeekDate); 
                 const day = targetDate.getDay(); 
-                const diff = targetDate.getDate() - day + (day === 0 ? -6 : 1); // 調整至週一
+                const diff = targetDate.getDate() - day + (day === 0 ? -6 : 1); 
                 
                 const startOfWeek = new Date(targetDate.setDate(diff));
                 startOfWeek.setHours(0,0,0,0);
@@ -216,8 +221,6 @@ const ClientsView = ({
 
                 const matchCreated = inRange(createdDate);
                 const matchContact = inRange(contactDate);
-                
-                // ★ 關鍵：檢查每條回報紀錄 (Notes) 的日期 ★
                 let matchNote = false;
                 if (Array.isArray(c.notes)) {
                     matchNote = c.notes.some(n => inRange(safeDate(n.date)));
@@ -239,13 +242,7 @@ const ClientsView = ({
     }, [customers, searchTerm, filterCategory, listMode, listYear, listMonth, listWeekDate, sortMode, isAdmin, currentUser]);
 
     const handleSelectOne = (id) => { if (selectedIds.includes(id)) setSelectedIds(prev => prev.filter(pid => pid !== id)); else setSelectedIds(prev => [...prev, id]); };
-    
-    // ★ 分組全選：只選取「目前篩選後」的資料
-    const toggleSelect = () => { 
-        if (selectedIds.length === filteredCustomers.length && filteredCustomers.length > 0) setSelectedIds([]); 
-        else setSelectedIds(filteredCustomers.map(c => c.id)); 
-    };
-
+    const toggleSelect = () => { if (selectedIds.length === filteredCustomers.length && filteredCustomers.length > 0) setSelectedIds([]); else setSelectedIds(filteredCustomers.map(c => c.id)); };
     const handleCardClick = (customer) => { if (isBroadcastMode) onBroadcast(customer.id, true); else if (isSelectionMode) handleSelectOne(customer.id); else onCustomerClick(customer); };
     const getGroupCount = (groupKey) => filteredCustomers.filter(c => getGroupKey(c) === groupKey).length;
     const getGroupIcon = () => { if (sortMode === 'region') return <MapPin className="w-4 h-4 text-green-500"/>; if (sortMode === 'project') return <Building className="w-4 h-4 text-purple-500"/>; return <Users className="w-4 h-4 text-blue-500"/>; };
@@ -295,7 +292,9 @@ const ClientsView = ({
                     const isRental = customer.category.includes('出租');
                     const currentGroupKey = getGroupKey(customer);
                     const showGroupHeader = sortMode !== 'date' && currentGroupKey !== (index > 0 ? getGroupKey(filteredCustomers[index - 1]) : null);
-                    const isGroupExpanded = expandedGroups[currentGroupKey] || searchTerm !== '';
+                    
+                    // ★★★ 修正 2: 優先使用 expandedGroups 狀態，若 undefined 則依據 searchTerm ★★★
+                    const isGroupExpanded = expandedGroups[currentGroupKey] !== undefined ? expandedGroups[currentGroupKey] : (searchTerm !== '');
 
                     return (
                         <React.Fragment key={customer.id}>

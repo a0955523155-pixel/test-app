@@ -5,7 +5,7 @@ import {
   Plus, Trash2, Edit, Save, X, DollarSign, FileText, Image as ImageIcon,
   Clock, AlertTriangle, CheckCircle, LayoutTemplate, Menu, ChevronDown, 
   ChevronRight, Building2, Monitor, ExternalLink, Megaphone, UserPlus, Sparkles,
-  LayoutGrid, Shield, Briefcase, Filter, User, Database
+  LayoutGrid, Shield, Briefcase, Filter, User, Database, ArrowRight
 } from 'lucide-react';
 import { getFirestore, doc, updateDoc, addDoc, collection, deleteDoc, query, where, getDocs, writeBatch } from 'firebase/firestore'; 
 import { appId } from '../config/constants'; 
@@ -20,13 +20,29 @@ const REGIONS_DATA = {
     "屏東縣": ["屏東市", "潮州鎮", "東港鎮", "恆春鎮", "萬丹鄉", "長治鄉", "麟洛鄉", "九如鄉", "里港鄉", "鹽埔鄉", "高樹鄉", "萬巒鄉", "內埔鄉", "竹田鄉", "新埤鄉", "枋寮鄉", "新園鄉", "崁頂鄉", "林邊鄉", "南州鄉", "佳冬鄉", "琉球鄉", "車城鄉", "滿州鄉", "枋山鄉", "三地門鄉", "霧台鄉", "瑪家鄉", "泰武鄉", "來義鄉", "春日鄉", "獅子鄉", "牡丹鄉"]
 };
 
-// --- 輔助函式 ---
+// --- ★★★ 核心輔助：萬能日期物件轉換 ★★★ ---
+const getSafeDateObj = (val) => {
+    if (!val) return null;
+    try {
+        // 1. Firebase Timestamp
+        if (val.seconds) return new Date(val.seconds * 1000);
+        // 2. JS Date Object
+        if (val instanceof Date) return val;
+        // 3. String
+        if (typeof val === 'string') {
+            // 處理 "2023/01/01" -> "2023-01-01" (Safari 相容)
+            const standardStr = val.replace(/\//g, '-').trim();
+            const d = new Date(standardStr);
+            if (!isNaN(d.getTime())) return d;
+        }
+    } catch (e) { return null; }
+    return null;
+};
+
+// --- 日期區間比對函式 ---
 const checkDateMatch = (dateRef, timeFrame, targetYear, targetMonth, targetWeekStr) => {
-    if (!dateRef) return false;
-    let date;
-    if (dateRef.seconds) date = new Date(dateRef.seconds * 1000);
-    else date = new Date(dateRef);
-    if (isNaN(date.getTime())) return false;
+    const date = getSafeDateObj(dateRef);
+    if (!date) return false;
 
     if (timeFrame === 'all') return true;
     if (timeFrame === 'year') return date.getFullYear() === targetYear;
@@ -51,9 +67,9 @@ const checkDateMatch = (dateRef, timeFrame, targetYear, targetMonth, targetWeekS
 
 const getAdEfficiency = (rate) => {
     const percentage = rate * 100;
-    if (percentage >= 20) return { label: '🏆 優異', color: 'text-green-600', bg: 'bg-green-100 dark:bg-green-900/30', desc: '留電率 > 20%' };
-    if (percentage >= 10) return { label: '✅ 合格', color: 'text-blue-600', bg: 'bg-blue-100 dark:bg-blue-900/30', desc: '留電率 10~20%' };
-    return { label: '⚠️ 待加強', color: 'text-red-600', bg: 'bg-red-100 dark:bg-red-900/30', desc: '留電率 < 10%' };
+    if (percentage >= 20) return { label: '🏆 優異', color: 'text-green-600', bg: 'bg-green-100 dark:bg-green-900/30', desc: '>20%' };
+    if (percentage >= 10) return { label: '✅ 合格', color: 'text-blue-600', bg: 'bg-blue-100 dark:bg-blue-900/30', desc: '10-20%' };
+    return { label: '⚠️ 待優化', color: 'text-red-600', bg: 'bg-red-100 dark:bg-red-900/30', desc: '<10%' };
 };
 
 const MonitorSection = ({ title, count, icon: Icon, children, defaultOpen = false, colorClass = "text-gray-700" }) => {
@@ -108,7 +124,6 @@ const DashboardView = ({
     const [editingUserData, setEditingUserData] = useState(null);
     const [isMenuOpen, setIsMenuOpen] = useState(false);
     
-    // 清除狀態
     const [cleanStatus, setCleanStatus] = useState({ loading: false, result: '' });
 
     const menuRef = useRef(null);
@@ -123,7 +138,6 @@ const DashboardView = ({
         return () => document.removeEventListener("mousedown", handleClickOutside);
     }, []);
 
-    // ★ 補回遺失的函式 1: 資料庫清理 ★
     const handleScanAndClean = async () => {
         if (!currentUser?.companyCode) return;
         if (!confirm("⚠️ 警告：這將會掃描並刪除所有「無效資料」。\n\n判定標準：\n1. 姓名為「未命名」、「未命名匯入」或空白\n2. 電話為「無電話」或空白\n\n確定要執行嗎？")) return;
@@ -162,14 +176,12 @@ const DashboardView = ({
         }
     };
 
-    // ★ 補回遺失的函式 2: AI 產生器 ★
     const handleAiGenerate = () => {
         const quotes = ["堅持不是因為看到希望，而是堅持了才看到希望！", "每一份努力，都是在為未來的自己儲蓄。", "業績治百病，成交解千愁！", "相信自己，你是最棒的！", "沒有奇蹟，只有累積。", "再長的路，一步步也能走完。", "專注於目標，而不是障礙。"];
         const randomQuote = quotes[Math.floor(Math.random() * quotes.length)];
         setTempAnnouncement(randomQuote);
     };
 
-    // ★ 補回遺失的函式 3: 廣告牆地圖連結 ★
     const generateAdWallMapLink = () => {
         const fullAddr = `${adWallForm.city}${adWallForm.district}${adWallForm.road}`;
         if (!adWallForm.district || !adWallForm.road) { alert("請先選擇區域並輸入路名"); return; }
@@ -207,7 +219,6 @@ const DashboardView = ({
         } 
     };
 
-    // ★ 補回遺失的函式 4: 人員編輯開啟 ★
     const handleOpenUserEdit = (user) => {
         if (user) {
             setEditingUserData(user);
@@ -259,14 +270,21 @@ const DashboardView = ({
         }
     };
 
+    // ★★★ 核心統計邏輯 (頂部卡片 + 圓餅圖) ★★★
     const stats = useMemo(() => {
-        let totalRevenue = 0; let closedCount = 0; let newCasesCount = 0; let totalNewInquiries = 0; 
+        let totalRevenue = 0; 
+        let closedCount = 0; 
+        let newCasesCount = 0; 
+        let totalNewInquiries = 0; 
+        
         const marketingStats = {};
         const defaultSources = ['FB', '591', '帆布', '現場客', '介紹'];
         const configuredSources = safeAppSettings.sources && safeAppSettings.sources.length > 0 ? safeAppSettings.sources : defaultSources;
+        
         configuredSources.forEach(src => { marketingStats[src] = { newLeads: 0, activeLeads: 0, closedDeals: 0 }; });
         if (!marketingStats['其他']) marketingStats['其他'] = { newLeads: 0, activeLeads: 0, closedDeals: 0 };
 
+        // 1. 成交計算 (不分來源，只要是成交單就計算)
         if (Array.isArray(safeDeals)) {
             safeDeals.forEach(d => {
                 const dateRef = d.dealDate || d.signDate || d.date;
@@ -278,25 +296,42 @@ const DashboardView = ({
             });
         }
 
+        // 2. 客戶統計 (分母計算)
         if (Array.isArray(safeCustomers)) {
             safeCustomers.forEach(c => {
-                const isNewLead = checkDateMatch(c.createdAt, dashTimeFrame, statYear, statMonth, statWeek);
-                const isSellerOrLandlord = ['賣方', '出租', '出租方'].includes(c.category);
+                const isNewInTimeFrame = checkDateMatch(c.createdAt, dashTimeFrame, statYear, statMonth, statWeek);
+                const catRaw = (c.category || '').trim();
+                
+                // 排除案件
+                const isCase = ['賣', '出租', '屋主'].some(k => catRaw.includes(k));
+                if (isCase) {
+                    if (isNewInTimeFrame) newCasesCount++; 
+                    return; 
+                }
 
-                if (isNewLead) {
-                    if (isSellerOrLandlord) {
-                        newCasesCount++;
-                        return; 
-                    }
-                    totalNewInquiries++;
-                    let rawSrc = c.source || '其他';
-                    let srcStr = String(rawSrc).trim(); 
+                // 只算買方/租客
+                const isBuyer = ['買', '租', '客', '承租'].some(k => catRaw.includes(k));
+
+                if (isNewInTimeFrame && isBuyer) {
+                    totalNewInquiries++; 
+
+                    // 來源歸因
+                    let rawSrc = String(c.source || '其他'); 
+                    let srcStr = rawSrc.trim(); 
                     let matchedSource = '其他';
                     const lowerSrc = srcStr.toLowerCase();
-                    if (configuredSources.includes(srcStr)) { matchedSource = srcStr; } else { for (const s of configuredSources) { if (lowerSrc.includes(s.toLowerCase())) { matchedSource = s; break; } } }
+                    
+                    if (configuredSources.includes(srcStr)) { matchedSource = srcStr; } 
+                    else { for (const s of configuredSources) { if (lowerSrc.includes(s.toLowerCase())) { matchedSource = s; break; } } }
+                    
                     if (!marketingStats[matchedSource]) { marketingStats[matchedSource] = { newLeads: 0, activeLeads: 0, closedDeals: 0 }; }
                     marketingStats[matchedSource].newLeads++;
-                    if (['contacting', 'commissioned', 'offer', 'closed'].includes(c.status)) { marketingStats[matchedSource].activeLeads++; }
+
+                    // 有效留電
+                    const validStatuses = ['contacting', 'commissioned', 'offer', 'closed'];
+                    if (validStatuses.includes(c.status)) { 
+                        marketingStats[matchedSource].activeLeads++; 
+                    }
                 }
             });
         }
@@ -307,6 +342,7 @@ const DashboardView = ({
             data.efficiency = getAdEfficiency(data.conversionRate);
         });
 
+        // 業務排行榜
         const agentPerf = {};
         safeDeals.forEach(d => {
             const dateRef = d.dealDate || d.signDate || d.date;
@@ -321,69 +357,139 @@ const DashboardView = ({
         return { totalRevenue, closedCount, newCasesCount, totalNewInquiries, marketingStats, rankedAgents };
     }, [safeCustomers, safeDeals, dashTimeFrame, statYear, statMonth, statWeek, safeAppSettings.sources]);
 
+    // ★★★ 核心修正：ROI 分析 (專案廣告成效) ★★★
     const projectROI = useMemo(() => {
+        // 1. 定義時間範圍 View Range
+        const today = new Date();
+        let viewStart, viewEnd;
+
+        if (dashTimeFrame === 'week') {
+            const [wYear, wWeek] = statWeek.split('-W').map(Number);
+            const simpleDate = new Date(wYear, 0, 1 + (wWeek - 1) * 7);
+            const day = simpleDate.getDay(); 
+            const diff = simpleDate.getDate() - day + (day === 0 ? -6 : 1);
+            viewStart = new Date(simpleDate.setDate(diff)); viewStart.setHours(0,0,0,0);
+            viewEnd = new Date(viewStart); viewEnd.setDate(viewStart.getDate() + 6); viewEnd.setHours(23,59,59,999);
+        } else if (dashTimeFrame === 'month') {
+            viewStart = new Date(statYear, statMonth - 1, 1);
+            viewEnd = new Date(statYear, statMonth, 0, 23, 59, 59, 999);
+        } else if (dashTimeFrame === 'year') {
+            viewStart = new Date(statYear, 0, 1);
+            viewEnd = new Date(statYear, 11, 31, 23, 59, 59, 999);
+        } else {
+            viewStart = new Date(2000, 0, 1); 
+            viewEnd = new Date(2100, 11, 31);
+        }
+
         const result = {};
+
         Object.keys(safeProjects).forEach(region => {
             const projects = safeProjects[region] || [];
             projects.forEach(proj => {
                 const ads = safeAds[proj] || [];
-                let totalCost = 0;
-                let activeAdsCount = 0;
-                const today = new Date();
+                const adStats = []; 
+                let totalAllocatedCost = 0;
 
+                // A. 計算廣告攤提成本
                 ads.forEach(ad => {
-                     const adObj = typeof ad === 'string' ? { name: ad, cost: 0, startDate: null, endDate: null } : ad;
-                     let isActive = true;
-                     if (adObj.endDate) {
-                         const end = new Date(adObj.endDate);
-                         if (end < today && dashTimeFrame === 'month' && end.getMonth() !== today.getMonth()) { isActive = false; }
-                     }
-                     if (isActive) {
-                        totalCost += Number(adObj.cost || 0);
-                        activeAdsCount++;
-                     }
+                    const adObj = typeof ad === 'string' ? { name: ad, cost: 0, startDate: '', endDate: '' } : ad;
+                    if (!adObj.startDate || !adObj.endDate) return;
+
+                    const adStart = new Date(adObj.startDate);
+                    const adEnd = new Date(adObj.endDate);
+                    
+                    const totalAdDays = Math.max(1, (adEnd - adStart) / (1000 * 60 * 60 * 24));
+                    const dailyCost = Number(adObj.cost || 0) / totalAdDays;
+
+                    // 計算時間重疊 (Intersection)
+                    const overlapStart = adStart > viewStart ? adStart : viewStart;
+                    const overlapEnd = adEnd < viewEnd ? adEnd : viewEnd;
+                    
+                    let overlapDays = 0;
+                    if (overlapStart <= overlapEnd) {
+                        overlapDays = Math.floor((overlapEnd - overlapStart) / (1000 * 60 * 60 * 24)) + 1;
+                    }
+
+                    const allocatedCost = Math.round(dailyCost * overlapDays);
+                    // 只要有重疊天數或成本，就列入統計
+                    if (allocatedCost > 0 || overlapDays > 0) {
+                        totalAllocatedCost += allocatedCost;
+                        adStats.push({ 
+                            name: adObj.name, 
+                            cost: allocatedCost, 
+                            leads: 0, 
+                            inquiries: 0 
+                        });
+                    }
                 });
 
-                let relatedLeads = 0;
-                let relatedLeadsWithPhone = 0;
+                // B. 計算專案來客與留電 (歸因到廣告)
+                let totalProjectInquiries = 0;
+                let totalProjectLeads = 0;
 
                 safeCustomers.forEach(c => {
-                    const isBuyer = !['賣方', '出租', '出租方'].includes(c.category);
-                    if (isBuyer) {
-                        if (checkDateMatch(c.createdAt, dashTimeFrame, statYear, statMonth, statWeek)) {
-                            const safeReqRegion = c.reqRegion || '';
-                            const safeRemarks = c.remarks || '';
-                            const safeName = c.name || '';
+                    // 1. 確保是「本區間」新增的客戶
+                    const isNew = checkDateMatch(c.createdAt, dashTimeFrame, statYear, statMonth, statWeek);
+                    
+                    // 2. 確保是「買方」且「非案件」
+                    const catRaw = (c.category || '').trim();
+                    const isBuyer = ['買', '租', '客', '承租'].some(k => catRaw.includes(k));
+                    const isCase = ['賣', '出租', '屋主'].some(k => catRaw.includes(k));
+
+                    if (isNew && isBuyer && !isCase) {
+                        // 3. 寬鬆比對：客戶是否屬於此專案 (標籤 或 文字搜尋)
+                        let isTargetProject = false;
+                        if (Array.isArray(c.project)) {
+                            // 標籤比對 (去除空白)
+                            isTargetProject = c.project.some(p => p.trim() === proj.trim());
+                        } else if (c.project) {
+                            isTargetProject = c.project.trim() === proj.trim();
+                        }
+
+                        // 文字搜尋 Fallback (備註、區域、姓名)
+                        if (!isTargetProject) {
+                             const searchStr = (c.reqRegion + c.remarks + c.name).toLowerCase();
+                             if (searchStr.includes(proj.toLowerCase())) isTargetProject = true;
+                        }
+
+                        if (isTargetProject) {
+                            totalProjectInquiries++;
                             
-                            let projectMatch = false;
-                            if (Array.isArray(c.project)) {
-                                projectMatch = c.project.some(p => p === proj);
-                            } else if (c.project) {
-                                projectMatch = c.project === proj;
-                            }
+                            const isLead = ['contacting', 'offer', 'closed'].includes(c.status);
+                            if (isLead) totalProjectLeads++;
 
-                            const searchStr = (safeReqRegion + safeRemarks + safeName).toLowerCase();
-                            const keywordMatch = searchStr.includes(proj.toLowerCase());
-
-                            if (projectMatch || keywordMatch) {
-                                relatedLeads++;
-                                if (['contacting', 'offer', 'closed'].includes(c.status)) {
-                                    relatedLeadsWithPhone++;
+                            // 4. 歸因到特定廣告 (Source Matching)
+                            adStats.forEach(adStat => {
+                                const adName = adStat.name.toLowerCase();
+                                const sourceName = String(c.source || '').toLowerCase(); // 強制轉字串防崩潰
+                                // 雙向比對：來源含廣告名 或 廣告名含來源
+                                if (adName.includes(sourceName) || sourceName.includes(adName)) {
+                                    adStat.inquiries++;
+                                    if (isLead) adStat.leads++;
                                 }
-                            }
+                            });
                         }
                     }
                 });
 
-                const cpl = relatedLeads > 0 ? Math.round(totalCost / relatedLeads) : 0; 
-                const conversionRate = relatedLeads > 0 ? ((relatedLeadsWithPhone / relatedLeads) * 100).toFixed(1) : 0;
-                result[proj] = { totalCost, activeAdsCount, relatedLeads, relatedLeadsWithPhone, cpl, conversionRate };
+                // 顯示條件：只要有廣告成本 OR 有來客數據，就顯示該專案
+                if (totalAllocatedCost > 0 || totalProjectInquiries > 0) {
+                    const conversionRate = totalProjectInquiries > 0 ? ((totalProjectLeads / totalProjectInquiries) * 100).toFixed(1) : 0;
+                    
+                    result[proj] = { 
+                        totalCost: totalAllocatedCost, 
+                        totalInquiries: totalProjectInquiries,
+                        totalLeads: totalProjectLeads,
+                        conversionRate,
+                        cpl: totalProjectLeads > 0 ? Math.round(totalAllocatedCost / totalProjectLeads) : 0,
+                        adBreakdown: adStats 
+                    };
+                }
             });
         });
         return result;
     }, [safeProjects, safeAds, safeCustomers, dashTimeFrame, statYear, statMonth, statWeek]);
 
-    // ★ 補回遺失的計算 5: groupedExpiringItems ★
     const groupedExpiringItems = useMemo(() => {
         const today = new Date();
         const groups = { alerts: [], ads: [], adWalls: [], commission: [], payment: [] };
@@ -495,6 +601,7 @@ const DashboardView = ({
             <div className="px-4 py-4">
                 {dashboardView === 'stats' && (
                     <div className="space-y-6 animate-in fade-in duration-300">
+                        {/* 頂部四張卡片 */}
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                             <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl shadow-sm border border-gray-100 dark:border-slate-800 relative overflow-hidden"><div className="text-gray-500 dark:text-gray-400 text-xs font-bold uppercase tracking-wider mb-1">總業績 (Revenue)</div><div className="text-3xl font-black text-gray-800 dark:text-white font-mono tracking-tight">${stats.totalRevenue.toLocaleString()} <span className="text-sm text-gray-400 font-normal">萬</span></div></div>
                             <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl shadow-sm border border-gray-100 dark:border-slate-800 relative overflow-hidden"><div className="text-gray-500 dark:text-gray-400 text-xs font-bold uppercase tracking-wider mb-1">成交件數 (Closed)</div><div className="text-3xl font-black text-gray-800 dark:text-white font-mono tracking-tight">{stats.closedCount} <span className="text-sm text-gray-400 font-normal">件</span></div></div>
@@ -502,6 +609,7 @@ const DashboardView = ({
                             <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl shadow-sm border border-gray-100 dark:border-slate-800 relative overflow-hidden"><div className="text-gray-500 dark:text-gray-400 text-xs font-bold uppercase tracking-wider mb-1">新增案件 (Inventory)</div><div className="text-3xl font-black text-blue-600 dark:text-blue-400 font-mono tracking-tight">{stats.newCasesCount} <span className="text-sm text-gray-400 font-normal">件</span></div></div>
                         </div>
 
+                        {/* 廣告渠道效率評估 */}
                         {(isSuperAdmin || isAdmin) && (
                             <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-lg border border-gray-200 dark:border-slate-800 overflow-hidden">
                                 <div className="p-6 border-b border-gray-100 dark:border-slate-800 bg-gradient-to-r from-blue-50 to-white dark:from-slate-800 dark:to-slate-900">
@@ -524,6 +632,7 @@ const DashboardView = ({
                             </div>
                         )}
 
+                        {/* 各案場廣告投放與效益 (ROI Analysis) */}
                         {(isSuperAdmin || isAdmin) && (
                             <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-sm border border-gray-100 dark:border-slate-800 p-6">
                                 <h3 className="font-bold text-gray-700 dark:text-gray-300 mb-6 flex items-center gap-2"><Megaphone className="w-5 h-5"/> 各案場廣告投放與效益 (ROI Analysis)</h3>
@@ -532,7 +641,7 @@ const DashboardView = ({
                                         <div key={region} className="space-y-4">
                                             {projects.map(proj => {
                                                 const projectData = projectROI[proj];
-                                                if (!projectData || (projectData.activeAdsCount === 0 && projectData.relatedLeads === 0)) return null;
+                                                if (!projectData) return null;
 
                                                 return (
                                                     <div key={proj} className="bg-gray-50 dark:bg-slate-800/50 p-4 rounded-xl border border-gray-200 dark:border-slate-700">
@@ -551,9 +660,18 @@ const DashboardView = ({
                                                             </div>
                                                         </div>
                                                         <div className="flex justify-between text-xs text-gray-500 border-t dark:border-slate-700 pt-2">
-                                                            <span>總來客: <b>{projectData.relatedLeads}</b></span>
-                                                            <span>留電: <b className="text-green-600">{projectData.relatedLeadsWithPhone}</b></span>
+                                                            <span>總來客: <b>{projectData.totalInquiries}</b></span>
+                                                            <span>留電: <b className="text-green-600">{projectData.totalLeads}</b></span>
                                                             <span>率: <b>{projectData.conversionRate}%</b></span>
+                                                        </div>
+                                                        <div className="mt-3 space-y-1">
+                                                            {projectData.adBreakdown.map((ad, idx) => (
+                                                                <div key={idx} className="flex justify-between text-[10px] text-gray-500 bg-white dark:bg-slate-900 p-1.5 rounded border dark:border-slate-600">
+                                                                    <span className="truncate flex-1">{ad.name}</span>
+                                                                    <span className="font-bold text-gray-700 dark:text-gray-300 mx-2">${ad.cost}</span>
+                                                                    <span className="text-blue-500">{ad.inquiries}來/{ad.leads}留</span>
+                                                                </div>
+                                                            ))}
                                                         </div>
                                                     </div>
                                                 );
