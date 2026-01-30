@@ -93,8 +93,9 @@ const CustomerForm = ({ onSubmit, onCancel, initialData, appSettings, companyPro
         createdAt: new Date().toISOString().split('T')[0]
     });
 
+    // ★★★ 確保這裡有定義相關 state ★★★
     const [selectedIndustries, setSelectedIndustries] = useState([]);
-    const [industryInput, setIndustryInput] = useState('');
+    const [industryInput, setIndustryInput] = useState(''); 
     const [showRegionModal, setShowRegionModal] = useState(false); 
     const [showProjectModal, setShowProjectModal] = useState(false); 
     const [isCompressing, setIsCompressing] = useState(false);
@@ -104,7 +105,6 @@ const CustomerForm = ({ onSubmit, onCancel, initialData, appSettings, companyPro
     const projectRegions = Object.keys(companyProjects || {});
     const PROPERTY_TYPES = ["一般住宅", "透天", "大樓/華廈", "工業地", "農地", "建地", "廠房", "商辦", "店面", "其他"];
 
-    // 萬能日期解析
     const safeDateStr = (dateVal) => {
         if (!dateVal) return new Date().toISOString().split('T')[0];
         try {
@@ -117,7 +117,6 @@ const CustomerForm = ({ onSubmit, onCancel, initialData, appSettings, companyPro
         return new Date().toISOString().split('T')[0];
     };
 
-    // ★★★ 核心修正：載入舊資料時，同步更新 selectedIndustries ★★★
     useEffect(() => {
         if (initialData) {
             let loadedProjects = [];
@@ -133,7 +132,6 @@ const CustomerForm = ({ onSubmit, onCancel, initialData, appSettings, companyPro
                 }
             }
 
-            // ★ 這裡：將字串轉回標籤陣列
             if (initialData.industry) {
                 setSelectedIndustries(initialData.industry.split(',').filter(s => s.trim()));
             } else {
@@ -150,12 +148,10 @@ const CustomerForm = ({ onSubmit, onCancel, initialData, appSettings, companyPro
         }
     }, [initialData]);
 
-    // ★ 監聽標籤變化，同步回 formData
     useEffect(() => { 
         setFormData(prev => ({ ...prev, industry: selectedIndustries.join(',') })); 
     }, [selectedIndustries]);
 
-    // 其他 Effects
     useEffect(() => { if (formData.completeDate) { const y = new Date(formData.completeDate).getFullYear(); const c = new Date().getFullYear(); if (!isNaN(y)) setFormData(p => ({ ...p, houseAge: (c - y).toString() })); } }, [formData.completeDate]);
     useEffect(() => { setFormData(prev => { let eff = prev.landPing; if (prev.landPing && prev.rightsScope) { try { let r = 1; if (prev.rightsScope.includes('/')) { const [n, d] = prev.rightsScope.split('/'); r = Number(n)/Number(d); } else { r = Number(prev.rightsScope); } if (!isNaN(r)) eff = (Number(prev.landPing) * r).toFixed(2); } catch (e) {} } return { ...prev, effectivePing: eff }; }); }, [formData.landPing, formData.rightsScope]);
 
@@ -195,6 +191,7 @@ const CustomerForm = ({ onSubmit, onCancel, initialData, appSettings, companyPro
         }
     };
 
+    // ★★★ 智慧配對邏輯 ★★★
     const handleSmartIndustryDetect = () => {
         if (!industryInput.trim()) return;
         const text = industryInput.trim();
@@ -213,7 +210,7 @@ const CustomerForm = ({ onSubmit, onCancel, initialData, appSettings, companyPro
             if (!selectedIndustries.includes(matched)) {
                 setSelectedIndustries(prev => [...prev, matched]);
                 setFormData(prev => ({ ...prev, serviceItems: prev.serviceItems ? `${prev.serviceItems}, ${text}` : text }));
-                setIndustryInput('');
+                setIndustryInput(''); // 清空
             } else {
                 alert(`已經加入「${matched}」了`);
             }
@@ -301,6 +298,7 @@ const CustomerForm = ({ onSubmit, onCancel, initialData, appSettings, companyPro
                                 </div>
                             </div>
 
+                            {/* ★★★ 智慧行業辨識 UI ★★★ */}
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div>
                                     <label className="block text-xs font-bold text-gray-500 mb-1">行業別 (可多選)</label>
@@ -344,8 +342,10 @@ const CustomerForm = ({ onSubmit, onCancel, initialData, appSettings, companyPro
                             </div>
                         </div>
 
+                        {/* 案件與買方模式區塊 (保持不變) */}
                         {isCaseMode && (
                             <div className="space-y-6 bg-orange-50 dark:bg-orange-900/10 p-4 rounded-xl border border-orange-100 dark:border-orange-900/30">
+                                {/* ... (省略重複的案件表單代碼) ... */}
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                     <div className="md:col-span-2"><label className="block text-xs font-bold text-gray-500 mb-1">案件名稱</label><input name="caseName" value={formData.caseName || ''} onChange={handleChange} className="w-full p-2 rounded-lg border dark:bg-slate-800 dark:border-slate-700 dark:text-white font-bold text-lg" placeholder="例如：美術特區景觀三房" /></div>
                                     <div className="md:col-span-2"><label className="block text-xs font-bold text-gray-500 mb-1 flex items-center gap-1"><UserCheck className="w-3 h-3"/> 指定承辦專員 (列印聯絡人)</label><select name="assignedAgent" value={formData.assignedAgent || ''} onChange={handleChange} className="w-full p-2 rounded-lg border dark:bg-slate-800 dark:border-slate-700 dark:text-white"><option value="">(預設為當前登入者)</option>{allUsers.map(user => (<option key={user.id} value={user.name}>{user.name}</option>))}</select></div>
