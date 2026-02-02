@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 import * as XLSX from 'xlsx'; 
 import { getFirestore, writeBatch, doc, updateDoc } from 'firebase/firestore'; 
-import { appId, STATUS_CONFIG, DEFAULT_SOURCES, DEFAULT_LEVELS } from '../config/constants';
+import { appId, STATUS_CONFIG, DEFAULT_SOURCES } from '../config/constants';
 
 const StatusBadge = ({ status, category }) => {
     const cat = category || '';
@@ -18,11 +18,28 @@ const StatusBadge = ({ status, category }) => {
 };
 
 const getSafeDateString = (dateVal) => {
-    if (!dateVal) return '-';
-    if (typeof dateVal === 'string') return dateVal.split('T')[0];
-    if (dateVal?.toDate) return dateVal.toDate().toISOString().split('T')[0];
-    if (dateVal instanceof Date) return dateVal.toISOString().split('T')[0];
-    return String(dateVal);
+    if (!dateVal) return '';
+    try {
+        if (typeof dateVal === 'string') return dateVal.split('T')[0];
+        if (dateVal?.toDate) return dateVal.toDate().toISOString().split('T')[0];
+        if (dateVal instanceof Date) return dateVal.toISOString().split('T')[0];
+    } catch(e) {}
+    return '';
+};
+
+// ★★★ 核心修正：嚴格日期邏輯 ★★★
+// 只看「回報紀錄」的最後一筆日期。如果沒有回報，就看「建檔日期」。
+// 完全忽略單純編輯資料造成的 lastContact 更新。
+const getStrictDate = (customer) => {
+    // 1. 優先找最後一筆筆記的日期
+    if (Array.isArray(customer.notes) && customer.notes.length > 0) {
+        // 假設 notes 是依序加入的，取最後一筆 (或是你可以 sort 一下確保萬無一失)
+        const sortedNotes = [...customer.notes].sort((a,b) => (b.date || '').localeCompare(a.date || ''));
+        const lastNoteDate = sortedNotes[0]?.date;
+        if (lastNoteDate) return { date: lastNoteDate, type: 'update' };
+    }
+    // 2. 沒有筆記，回傳建檔日期
+    return { date: getSafeDateString(customer.createdAt), type: 'create' };
 };
 
 const ClientsView = ({ 
@@ -41,9 +58,7 @@ const ClientsView = ({
     const [batchReplaceData, setBatchReplaceData] = useState({ field: 'remarks', findText: '', replaceText: '' });
     const [isProcessingBatch, setIsProcessingBatch] = useState(false);
 
-    // 取得選項 (優先使用設定值)
-    const sourceOptions = appSettings?.sources || DEFAULT_SOURCES;
-    const levelOptions = appSettings?.levels || DEFAULT_LEVELS;
+    const sourceOptions = appSettings?.sources && appSettings.sources.length > 0 ? appSettings.sources : DEFAULT_SOURCES;
 
     const [expandedGroups, setExpandedGroups] = useState(() => {
         try {
@@ -78,20 +93,19 @@ const ClientsView = ({
         });
     };
 
-    // ★★★ 快速更新來源 ★★★
     const handleQuickSourceChange = async (customerId, newSource) => {
         try {
             const db = getFirestore();
+            // 只更新 source，不更新 lastContact
             await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'customers', customerId), { source: newSource });
-        } catch (error) { console.error("更新失敗", error); }
+        } catch (error) { console.error("更新來源失敗", error); }
     };
 
-    // ★★★ 快速更新等級 ★★★
     const handleQuickLevelChange = async (customerId, newLevel) => {
         try {
             const db = getFirestore();
             await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'customers', customerId), { level: newLevel });
-        } catch (error) { console.error("更新失敗", error); }
+        } catch (error) { console.error("更新等級失敗", error); }
     };
 
     const addCustomDate = () => { if (tempDateInput && !customDates.includes(tempDateInput)) { setCustomDates([...customDates, tempDateInput].sort()); setTempDateInput(''); } };
@@ -216,61 +230,42 @@ const ClientsView = ({
             }
 
             let matchTime = true;
-            const safeDate = (d) => {
-                if(!d) return null;
-                const ds = getSafeDateString(d);
-                const obj = new Date(ds);
-                return isNaN(obj.getTime()) ? null : obj;
-            };
-            const createdDate = safeDate(c.createdAt);
-            const contactDate = safeDate(c.lastContact);
+            // ★★★ 核心修正：使用嚴格日期 (只看回報或建檔) ★★★
+            const { date: effectiveDateStr } = getStrictDate(c);
+            const effectiveDate = effectiveDateStr ? new Date(effectiveDateStr) : null;
 
             if (listMode === 'month') {
-                const targetYear = listYear; const targetMonth = listMonth;
-                const matchCreated = createdDate && createdDate.getFullYear() === targetYear && (createdDate.getMonth() + 1) === targetMonth;
-                const matchContact = contactDate && contactDate.getFullYear() === targetYear && (contactDate.getMonth() + 1) === targetMonth;
-                let matchNote = false;
-                if (Array.isArray(c.notes)) { matchNote = c.notes.some(n => { const nd = safeDate(n.date); return nd && nd.getFullYear() === targetYear && (nd.getMonth() + 1) === targetMonth; }); }
-                matchTime = matchCreated || matchContact || matchNote;
+                if (!effectiveDate) matchTime = false;
+                else matchTime = effectiveDate.getFullYear() === listYear && (effectiveDate.getMonth() + 1) === listMonth;
             } else if (listMode === 'week') {
-                const targetDate = new Date(listWeekDate); const day = targetDate.getDay(); const diff = targetDate.getDate() - day + (day === 0 ? -6 : 1); 
-                const startOfWeek = new Date(targetDate.setDate(diff)); startOfWeek.setHours(0,0,0,0);
-                const endOfWeek = new Date(startOfWeek); endOfWeek.setDate(startOfWeek.getDate() + 6); endOfWeek.setHours(23,59,59,999);
-                const inRange = (d) => d && d >= startOfWeek && d <= endOfWeek;
-                const matchCreated = inRange(createdDate); const matchContact = inRange(contactDate);
-                let matchNote = false; if (Array.isArray(c.notes)) { matchNote = c.notes.some(n => inRange(safeDate(n.date))); }
-                matchTime = matchCreated || matchContact || matchNote;
+                const targetDate = new Date(listWeekDate); 
+                const day = targetDate.getDay(); 
+                const diff = targetDate.getDate() - day + (day === 0 ? -6 : 1); 
+                const startOfWeek = new Date(targetDate.setDate(diff)); 
+                startOfWeek.setHours(0,0,0,0);
+                
+                const endOfWeek = new Date(startOfWeek);
+                endOfWeek.setDate(startOfWeek.getDate() + 6);
+                endOfWeek.setHours(23,59,59,999);
+
+                if (!effectiveDate) matchTime = false;
+                else matchTime = effectiveDate >= startOfWeek && effectiveDate <= endOfWeek;
             } else if (listMode === 'custom') {
-                const check = (d) => d && customDates.includes(getSafeDateString(d));
-                const matchCreated = check(c.createdAt);
-                const matchContact = check(c.lastContact);
-                let matchNote = false;
-                if (Array.isArray(c.notes)) { matchNote = c.notes.some(n => customDates.includes(n.date)); }
-                matchTime = matchCreated || matchContact || matchNote;
+                matchTime = customDates.includes(effectiveDateStr);
             }
             return matchSearch && matchCat && matchTime;
         });
 
         data.sort((a, b) => {
-            const getSortableDate = (item) => {
-                let val;
-                if (listMode === 'week') {
-                    val = item.lastContact || item.createdAt;
-                } else {
-                    val = item.createdAt;
-                }
-                return getSafeDateString(val); 
-            };
-
-            const dateStrA = getSortableDate(a);
-            const dateStrB = getSortableDate(b);
+            // ★★★ 核心修正：排序也用嚴格日期 ★★★
+            const { date: dateStrA } = getStrictDate(a);
+            const { date: dateStrB } = getStrictDate(b);
 
             if (sortMode !== 'date') {
                 const keyA = getGroupKey(a);
                 const keyB = getGroupKey(b);
                 if (keyA !== keyB) return keyA.localeCompare(keyB, 'zh-Hant');
             }
-
             return String(dateStrB).localeCompare(String(dateStrA));
         });
         return data;
@@ -380,7 +375,7 @@ const ClientsView = ({
                     {!isBroadcastMode && (
                         <div className="flex flex-col gap-2">
                             <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-1">
-                                <div className={`flex items-center px-2 py-1.5 rounded-lg border ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white'}`}><ArrowUpDown className="w-3 h-3 text-gray-500 mr-1"/><select value={sortMode} onChange={handleSortChange} className={`bg-transparent border-none text-xs font-bold outline-none ${darkMode?'text-white':'text-gray-700'}`}><option value="date">建檔日期 (新→舊)</option><option value="agent">分組: 業務</option><option value="region">分組: 區域</option><option value="project">分組: 案場</option></select></div>
+                                <div className={`flex items-center px-2 py-1.5 rounded-lg border ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white'}`}><ArrowUpDown className="w-3 h-3 text-gray-500 mr-1"/><select value={sortMode} onChange={handleSortChange} className={`bg-transparent border-none text-xs font-bold outline-none ${darkMode?'text-white':'text-gray-700'}`}><option value="date">最新動態 (優先)</option><option value="agent">分組: 業務</option><option value="region">分組: 區域</option><option value="project">分組: 案場</option></select></div>
                                 <div className="h-6 w-px bg-gray-300 dark:bg-slate-700 mx-1"></div>
                                 <select value={filterCategory} onChange={handleCategoryChange} className={`px-3 py-1.5 rounded-lg border text-xs font-bold outline-none ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white'}`}>
                                     <option value="all">全部分類</option>
@@ -422,6 +417,9 @@ const ClientsView = ({
                     const idsInGroup = filteredCustomers.filter(c => getGroupKey(c) === currentGroupKey).map(c => c.id);
                     const isGroupAllSelected = idsInGroup.length > 0 && idsInGroup.every(id => selectedIds.includes(id));
                     const isGroupPartialSelected = !isGroupAllSelected && idsInGroup.some(id => selectedIds.includes(id));
+                    
+                    // ★★★ 顯示邏輯：只顯示最後一筆回報日，或建檔日 ★★★
+                    const { date: displayDate, type: dateType } = getStrictDate(customer);
 
                     return (
                         <React.Fragment key={customer.id}>
@@ -447,24 +445,15 @@ const ClientsView = ({
                                                 <div className="text-xs font-mono text-blue-500 font-bold">{['賣方', '出租', '出租方'].includes(customer.category) ? `開價 ${customer.totalPrice || 0} ${isRental ? '元' : '萬'}` : `預算 ${customer.value || 0} ${isRental ? '元' : '萬'}`}</div>
                                                 <div className="flex justify-between items-center mt-2 pt-2 border-t border-dashed border-gray-200 dark:border-slate-800">
                                                     <span className="text-[10px] bg-gray-100 dark:bg-slate-800 px-2 py-0.5 rounded">{customer.ownerName}</span>
-                                                    <span className="text-[10px] opacity-70">{getSafeDateString(customer.createdAt)}</span>
+                                                    {/* ★★★ 清楚標示是回報日還是建檔日 ★★★ */}
+                                                    <span className={`text-[10px] ${dateType === 'update' ? 'text-blue-600 font-bold' : 'opacity-70'}`}>
+                                                        {dateType === 'update' ? '更新: ' : '建檔: '}{displayDate}
+                                                    </span>
                                                 </div>
-                                                {/* ★★★ 快速更新區域 (等級 & 來源) ★★★ */}
-                                                <div className="flex gap-1 mt-1" onClick={(e) => e.stopPropagation()}>
-                                                    <select
-                                                        value={customer.source || ''}
-                                                        onChange={(e) => handleQuickSourceChange(customer.id, e.target.value)}
-                                                        className="text-[10px] p-1 border rounded bg-gray-50 dark:bg-slate-800 dark:border-slate-700 dark:text-gray-300 w-full max-w-[100px]"
-                                                    >
+                                                <div className="mt-1" onClick={(e) => e.stopPropagation()}>
+                                                    <select value={customer.source || ''} onChange={(e) => handleQuickSourceChange(customer.id, e.target.value)} className="text-[10px] p-1 border rounded bg-gray-50 dark:bg-slate-800 dark:border-slate-700 dark:text-gray-300 w-full max-w-[120px]">
                                                         <option value="">選擇來源...</option>
-                                                        {sourceOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                                                    </select>
-                                                    <select
-                                                        value={customer.level || ''}
-                                                        onChange={(e) => handleQuickLevelChange(customer.id, e.target.value)}
-                                                        className="text-[10px] p-1 border rounded bg-gray-50 dark:bg-slate-800 dark:border-slate-700 dark:text-gray-300 w-12 text-center"
-                                                    >
-                                                        {levelOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                                                        {sourceOptions.map(opt => (<option key={opt} value={opt}>{opt}</option>))}
                                                     </select>
                                                 </div>
                                             </div>

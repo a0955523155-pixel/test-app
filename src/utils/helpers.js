@@ -1,99 +1,64 @@
 // src/utils/helpers.js
 
-export const getDateFromFirestore = (timestamp) => {
-    if (!timestamp) return new Date();
-    if (timestamp.toDate) return timestamp.toDate();
-    if (timestamp instanceof Date) return timestamp;
-    if (typeof timestamp === 'string') {
-        const d = new Date(timestamp);
-        if (!isNaN(d.getTime())) return d;
-    }
-    return new Date();
-};
+// 檢查日期是否符合篩選範圍
+export const checkDateMatch = (dateRef, timeFrame, targetYear, targetMonth, targetWeekStr) => {
+    if (!dateRef) return false;
+    let date;
+    if (dateRef.seconds) { date = new Date(dateRef.seconds * 1000); } 
+    else { date = new Date(dateRef); }
+    if (isNaN(date.getTime())) return false;
 
-export const formatDateString = (date) => {
-    if (!date) return '';
-    let d;
-    try {
-        d = getDateFromFirestore(date); 
-    } catch (e) {
-        return '';
-    }
-    if (isNaN(d.getTime())) return '';
+    if (timeFrame === 'all') return true;
+    if (timeFrame === 'year') return date.getFullYear() === targetYear;
+    if (timeFrame === 'month') return date.getFullYear() === targetYear && (date.getMonth() + 1) === targetMonth;
     
-    const year = d.getFullYear();
-    const month = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-};
-
-export const getAdStatus = (startDate, endDate, now = new Date()) => {
-    if (!endDate) return { daysLeft: null, percent: 0, status: 'unknown' };
-    const today = new Date(now);
-    today.setHours(0,0,0,0);
-    const start = startDate ? new Date(startDate) : today;
-    const end = new Date(endDate);
-    
-    if (isNaN(start.getTime()) || isNaN(end.getTime())) return { daysLeft: null, percent: 0, status: 'unknown' };
-    
-    const totalDuration = end - start;
-    const timeLeft = end - today;
-    const daysLeft = Math.ceil(timeLeft / (1000 * 60 * 60 * 24));
-    
-    let percent = 100;
-    if (totalDuration > 0) percent = Math.max(0, Math.min(100, (1 - (timeLeft / totalDuration)) * 100));
-    
-    let status = 'active';
-    if (daysLeft < 0) status = 'expired';
-    else if (daysLeft <= 3) status = 'warning';
-    
-    return { daysLeft, percent, status };
-};
-
-export const getWeekRangeDisplay = (dateStr) => {
-    if (!dateStr) return '';
-    const [y, m, d] = dateStr.split('-').map(Number);
-    const current = new Date(y, m - 1, d);
-    if (isNaN(current.getTime())) return '';
-
-    const day = current.getDay();
-    const diff = current.getDate() - day + (day === 0 ? -6 : 1); 
-    
-    const monday = new Date(current);
-    monday.setDate(diff);
-    
-    const sunday = new Date(monday);
-    sunday.setDate(monday.getDate() + 6);
-    
-    const format = (date) => `${date.getMonth() + 1}/${date.getDate()}`;
-    return `(${format(monday)} ~ ${format(sunday)})`;
-};
-
-export const isDateInRange = (dateStr, mode, year, month, weekDateStr) => {
-    if (!dateStr) return false;
-    const [y, m, d] = dateStr.split('-').map(Number);
-    const target = new Date(y, m - 1, d);
-    if (isNaN(target.getTime())) return false;
-
-    if (mode === 'year') {
-        return y === year;
-    } else if (mode === 'month') {
-        return y === year && m === month;
-    } else if (mode === 'week') {
-        const [wy, wm, wd] = weekDateStr.split('-').map(Number);
-        const current = new Date(wy, wm - 1, wd);
-        const day = current.getDay();
-        const diff = current.getDate() - day + (day === 0 ? -6 : 1);
-        
-        const monday = new Date(current);
-        monday.setDate(diff);
-        monday.setHours(0,0,0,0);
-        
-        const sunday = new Date(monday);
-        sunday.setDate(monday.getDate() + 6);
-        sunday.setHours(23,59,59,999);
-        
-        return target >= monday && target <= sunday;
+    if (timeFrame === 'week') {
+        if (!targetWeekStr) return false;
+        const [wYear, wWeek] = targetWeekStr.split('-W').map(Number);
+        const simpleDate = new Date(wYear, 0, 1 + (wWeek - 1) * 7);
+        const dow = simpleDate.getDay();
+        const ISOweekStart = simpleDate;
+        if (dow <= 4) ISOweekStart.setDate(simpleDate.getDate() - simpleDate.getDay() + 1);
+        else ISOweekStart.setDate(simpleDate.getDate() + 8 - simpleDate.getDay());
+        const startDate = new Date(ISOweekStart);
+        startDate.setHours(0,0,0,0);
+        const endDate = new Date(startDate);
+        endDate.setDate(startDate.getDate() + 7);
+        return date >= startDate && date < endDate;
     }
     return false;
+};
+
+// 取得當前週次字串 (YYYY-WXX)
+export const getCurrentWeekStr = () => { 
+    const today = new Date(); 
+    const d = new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate())); 
+    const dayNum = d.getUTCDay() || 7; 
+    d.setUTCDate(d.getUTCDate() + 4 - dayNum); 
+    const yearStart = new Date(Date.UTC(d.getUTCFullYear(),0,1)); 
+    const weekNo = Math.ceil((((d - yearStart) / 86400000) + 1)/7); 
+    return `${d.getUTCFullYear()}-W${String(weekNo).padStart(2, '0')}`; 
+};
+
+// 安全取得日期字串 (處理 Timestamp)
+export const getSafeDateStr = (val) => {
+    if (!val) return null;
+    if (typeof val === 'string') return val.split('T')[0];
+    if (val?.toDate) return val.toDate().toISOString().split('T')[0];
+    if (val instanceof Date) return val.toISOString().split('T')[0];
+    return null;
+};
+
+// ★★★ 補上這個遺失的函式 ★★★
+export const getContactThreshold = (level, status) => {
+    if (status === 'lost') return 999;
+    if (status === 'closed') return 30;
+    if (status === 'commissioned') { 
+        if (level === 'A') return 7; 
+        if (level === 'B') return 14; 
+        return 30; 
+    }
+    if (level === 'A') return 3; 
+    if (level === 'B') return 7; 
+    return 14; 
 };
