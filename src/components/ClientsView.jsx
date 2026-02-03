@@ -1,14 +1,15 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { 
-  Search, Plus, Upload, FileSpreadsheet, 
-  ChevronDown, ChevronRight, Users, MapPin, Building,
-  Megaphone, X, UserCircle, CheckSquare, CheckCircle, ArrowUpDown, LogOut, Sun, Moon, Trash2,
-  Edit, RefreshCw, Calendar, Filter
+    Search, Plus, Upload, FileSpreadsheet, 
+    ChevronDown, ChevronRight, Users, MapPin, Building,
+    Megaphone, X, UserCircle, CheckSquare, CheckCircle, ArrowUpDown, LogOut, Sun, Moon, Trash2,
+    Edit, RefreshCw, Calendar
 } from 'lucide-react';
 import * as XLSX from 'xlsx'; 
 import { getFirestore, writeBatch, doc, updateDoc } from 'firebase/firestore'; 
 import { appId, STATUS_CONFIG, DEFAULT_SOURCES } from '../config/constants';
 
+// --- 狀態標籤組件 ---
 const StatusBadge = ({ status, category }) => {
     const cat = category || '';
     const isCase = cat.includes('賣') || cat.includes('出租') || cat.includes('屋主');
@@ -27,19 +28,27 @@ const getSafeDateString = (dateVal) => {
     return '';
 };
 
-// ★★★ 核心修正：嚴格日期邏輯 ★★★
-// 只看「回報紀錄」的最後一筆日期。如果沒有回報，就看「建檔日期」。
-// 完全忽略單純編輯資料造成的 lastContact 更新。
+// ★★★ 核心修正：嚴格日期邏輯 (只看客戶回報) ★★★
+// 這裡會過濾掉 type='vendor' 的記事，只計算客戶回報的最新時間
 const getStrictDate = (customer) => {
-    // 1. 優先找最後一筆筆記的日期
-    if (Array.isArray(customer.notes) && customer.notes.length > 0) {
-        // 假設 notes 是依序加入的，取最後一筆 (或是你可以 sort 一下確保萬無一失)
-        const sortedNotes = [...customer.notes].sort((a,b) => (b.date || '').localeCompare(a.date || ''));
-        const lastNoteDate = sortedNotes[0]?.date;
-        if (lastNoteDate) return { date: lastNoteDate, type: 'update' };
+    // 1. 取得所有記事
+    const allNotes = customer.notes || [];
+    
+    // 2. 過濾：只保留非廠商 (type !== 'vendor') 的記事
+    const clientNotes = allNotes.filter(n => n.type !== 'vendor');
+
+    // 3. 如果有客戶記事，取最新的一筆
+    if (clientNotes.length > 0) {
+        // 排序 (日期大到小)
+        const sortedNotes = [...clientNotes].sort((a,b) => (b.date || '').localeCompare(a.date || ''));
+        const lastNote = sortedNotes[0];
+        if (lastNote && lastNote.date) {
+            return { date: lastNote.date, type: 'update', content: lastNote.content };
+        }
     }
-    // 2. 沒有筆記，回傳建檔日期
-    return { date: getSafeDateString(customer.createdAt), type: 'create' };
+    
+    // 4. 完全沒有客戶記事，回傳建檔日期
+    return { date: getSafeDateString(customer.createdAt), type: 'create', content: '' };
 };
 
 const ClientsView = ({ 
@@ -96,16 +105,8 @@ const ClientsView = ({
     const handleQuickSourceChange = async (customerId, newSource) => {
         try {
             const db = getFirestore();
-            // 只更新 source，不更新 lastContact
             await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'customers', customerId), { source: newSource });
         } catch (error) { console.error("更新來源失敗", error); }
-    };
-
-    const handleQuickLevelChange = async (customerId, newLevel) => {
-        try {
-            const db = getFirestore();
-            await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'customers', customerId), { level: newLevel });
-        } catch (error) { console.error("更新等級失敗", error); }
     };
 
     const addCustomDate = () => { if (tempDateInput && !customDates.includes(tempDateInput)) { setCustomDates([...customDates, tempDateInput].sort()); setTempDateInput(''); } };
@@ -175,7 +176,7 @@ const ClientsView = ({
                    }
                    if (!serial || isNaN(serial)) return new Date().toISOString().split('T')[0];
                    const utc_days  = Math.floor(serial - 25569);
-                   const utc_value = utc_days * 86400;                                        
+                   const utc_value = utc_days * 86400;                                 
                    const date_info = new Date(utc_value * 1000);
                    return date_info.toISOString().split('T')[0]; 
                 };
@@ -230,7 +231,7 @@ const ClientsView = ({
             }
 
             let matchTime = true;
-            // ★★★ 核心修正：使用嚴格日期 (只看回報或建檔) ★★★
+            // ★★★ 核心修正：使用嚴格日期 (只看客戶回報) ★★★
             const { date: effectiveDateStr } = getStrictDate(c);
             const effectiveDate = effectiveDateStr ? new Date(effectiveDateStr) : null;
 

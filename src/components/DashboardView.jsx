@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { 
     LayoutDashboard, Moon, Sun, LogOut, BarChart2, AlertTriangle, LayoutGrid, Monitor, DollarSign, Users, Settings, Database, Trash2, Download, Menu, User as UserIcon, Shield, Briefcase, Save, X, ToggleLeft, ToggleRight, Megaphone, Edit2
 } from 'lucide-react';
@@ -31,33 +31,58 @@ const DashboardView = ({
     onSaveAd, onEditAdInit, triggerDeleteAd,
     announcement, onSaveAnnouncement,
     adWalls, systemAlerts, onResolveAlert,
-    statWeek, setStatWeek
+    statWeek, setStatWeek,
+    onOpenProfile,
+    onOpenSettings
 }) => {
     
     const [isMenuOpen, setIsMenuOpen] = useState(false);
     const [editUserModal, setEditUserModal] = useState(false);
     const [editingUserData, setEditingUserData] = useState(null);
 
-    // 1. 系統公告(跑馬燈)編輯用的暫存狀態 (移除了 title 初始值，保留 active 與 content)
+    // 1. 系統公告編輯暫存狀態 (保留給 SettingsPanel 使用)
     const [tempAnnouncement, setTempAnnouncement] = useState({
         content: '',
         date: new Date().toISOString().split('T')[0],
         active: true
     });
 
-    // 2. 廣告編輯邏輯
+    // 當外部資料進來時，同步更新編輯框
+    useEffect(() => {
+        if (announcement) {
+            setTempAnnouncement({
+                content: announcement.content || '',
+                date: announcement.date || new Date().toISOString().split('T')[0],
+                active: announcement.active !== undefined ? announcement.active : true
+            });
+        }
+    }, [announcement]);
+
+    // 儲存公告的中介函式
+    const handleLocalSaveAnnouncement = () => {
+        if (onSaveAnnouncement) {
+            onSaveAnnouncement(tempAnnouncement);
+            alert('跑馬燈設定已儲存！');
+        }
+    };
+
+    // 2. 廣告編輯邏輯 (確保按鈕功能正常)
     const handleLocalManageAd = (project, adData) => {
+        // 設定目前的案場
         if (setAdManageProject) setAdManageProject(project);
         
+        // 準備表單資料
         const nextFormData = adData ? { ...adData } : {
             id: null,
             name: '',
             startDate: new Date().toISOString().split('T')[0],
             endDate: '',
+            cost: '', // 確保有成本欄位
             note: '',
             project: project
         };
 
+        // 更新表單狀態並打開 Modal
         if (setAdForm) setAdForm(nextFormData);
         if (setIsEditingAd) setIsEditingAd(true);
     };
@@ -122,22 +147,6 @@ const DashboardView = ({
 
     return (
         <div className="pb-20">
-            {/* 注入跑馬燈樣式 */}
-            <style>{`
-                @keyframes marquee {
-                    0% { transform: translateX(100%); }
-                    100% { transform: translateX(-100%); }
-                }
-                .animate-marquee {
-                    animation: marquee 25s linear infinite;
-                    white-space: nowrap;
-                    display: inline-block;
-                }
-                .marquee-container:hover .animate-marquee {
-                    animation-play-state: paused;
-                }
-            `}</style>
-
             {/* Header */}
             <div className="sticky top-0 z-10 bg-white dark:bg-slate-950 p-4 border-b dark:border-slate-800 flex justify-between items-center">
                 <div className="flex items-center gap-4">
@@ -176,28 +185,6 @@ const DashboardView = ({
 
             <div className="p-6 max-w-7xl mx-auto space-y-6">
 
-                {/* --- 跑馬燈區塊 (更新後：只顯示內容) --- */}
-                <div className="w-full bg-gradient-to-r from-blue-600 to-blue-500 text-white p-4 rounded-2xl shadow-lg shadow-blue-200 dark:shadow-none flex items-center overflow-hidden">
-                    <div className="flex-shrink-0 bg-white/20 p-2 rounded-lg mr-4">
-                        <Megaphone className="w-5 h-5 text-white animate-pulse" />
-                    </div>
-                    <div className="flex-1 overflow-hidden marquee-container relative h-6">
-                        {announcement && announcement.active && announcement.content ? (
-                            <div className="animate-marquee font-bold tracking-wide absolute w-full flex items-center">
-                                {/* 只顯示 content，移除 title */}
-                                <span className="mr-8">{announcement.content}</span>
-                                <span className="text-white/50 mr-8">***</span>
-                                <span>{announcement.content}</span>
-                            </div>
-                        ) : (
-                            <div className="font-bold flex items-center">
-                                目前沒有系統跑馬燈公告。
-                                {isAdmin && <span className="ml-2 text-sm bg-white/20 px-2 py-0.5 rounded cursor-pointer hover:bg-white/30" onClick={() => setDashboardView('settings')}>(點此設定)</span>}
-                            </div>
-                        )}
-                    </div>
-                </div>
-
                 {/* 1. 數據概況 */}
                 {dashboardView === 'stats' && (
                     <div className="animate-in fade-in slide-in-from-bottom-4">
@@ -221,7 +208,17 @@ const DashboardView = ({
                             </div>
                         </div>
 
-                        <ROITable marketingStats={dashboardStats.marketingStats || {}} isSuperAdmin={isSuperAdmin} isAdmin={isAdmin} />
+                        {/* ✅ 傳遞 projectAds 與 時間參數 實現精準 ROI 分析 */}
+                        <ROITable 
+                            marketingStats={dashboardStats.marketingStats || {}} 
+                            projectAds={projectAds}
+                            dashTimeFrame={dashTimeFrame}
+                            statYear={statYear}
+                            statMonth={statMonth}
+                            statWeek={statWeek}
+                            isSuperAdmin={isSuperAdmin} 
+                            isAdmin={isAdmin} 
+                        />
                         
                         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
                             <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl shadow-sm border border-gray-100 dark:border-slate-800">
@@ -248,6 +245,7 @@ const DashboardView = ({
                         newProjectNames={newProjectNames} setNewProjectNames={setNewProjectNames}
                         onAddRegion={onAddRegion} onDeleteRegion={onDeleteRegion}
                         onAddProject={onAddProject} onDeleteProject={onDeleteProject}
+                        // 使用修復後的本地管理函式
                         onManageAd={handleLocalManageAd}
                         adForm={adForm}
                         setAdForm={setAdForm}
@@ -281,14 +279,15 @@ const DashboardView = ({
                         appSettings={appSettings} 
                         onAddOption={onAddOption} onDeleteOption={onDeleteOption} onReorderOption={onReorderOption} 
                         announcement={announcement} 
-                        onSaveAnnouncement={onSaveAnnouncement}
+                        // 傳遞包裝後的儲存函式
+                        onSaveAnnouncement={handleLocalSaveAnnouncement}
                         tempAnnouncement={tempAnnouncement} 
                         setTempAnnouncement={setTempAnnouncement}
                     />
                 )}
             </div>
 
-            {/* Modals */}
+            {/* --- Modals --- */}
             
             {/* 人員編輯 Modal */}
             {editUserModal && editingUserData && (
@@ -311,7 +310,7 @@ const DashboardView = ({
                 </div>
             )}
 
-            {/* 廣告編輯 Modal */}
+            {/* 廣告編輯 Modal (這是點擊 "新增/編輯" 按鈕後會出現的視窗) */}
             {isEditingAd && adForm && (
                 <div className="fixed inset-0 z-[100] bg-black/60 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in">
                     <div className="bg-white dark:bg-slate-900 w-full max-w-md rounded-3xl shadow-2xl flex flex-col overflow-hidden">
@@ -357,6 +356,20 @@ const DashboardView = ({
                                     />
                                 </div>
                             </div>
+
+                            <div>
+                                <label className="block text-sm font-bold text-gray-500 dark:text-gray-400 mb-1">廣告費用 (選填)</label>
+                                <div className="relative">
+                                    <DollarSign className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"/>
+                                    <input 
+                                        type="text" 
+                                        value={adForm.cost || ''} 
+                                        onChange={e => setAdForm({...adForm, cost: e.target.value})} 
+                                        placeholder="輸入金額..."
+                                        className="w-full pl-10 pr-4 py-2 rounded-xl border bg-gray-50 dark:bg-slate-800 dark:border-slate-700 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none"
+                                    />
+                                </div>
+                            </div>
                             
                             <div>
                                 <label className="block text-sm font-bold text-gray-500 dark:text-gray-400 mb-1">備註 / 連結</label>
@@ -364,7 +377,7 @@ const DashboardView = ({
                                     rows="3"
                                     value={adForm.note || ''} 
                                     onChange={e => setAdForm({...adForm, note: e.target.value})} 
-                                    placeholder="廣告連結或費用備註..."
+                                    placeholder="廣告連結或詳細備註..."
                                     className="w-full px-4 py-2 rounded-xl border bg-gray-50 dark:bg-slate-800 dark:border-slate-700 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none resize-none"
                                 ></textarea>
                             </div>

@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { Loader2, Moon, Sun, LogOut, Edit, Trash2, X } from 'lucide-react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { Loader2, Moon, Sun, LogOut, Edit, Trash2, X, Megaphone } from 'lucide-react';
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getAuth, onAuthStateChanged, signInAnonymously } from 'firebase/auth';
 import { getFirestore, collection, doc, addDoc, updateDoc, deleteDoc, onSnapshot, query, where, setDoc, serverTimestamp, arrayUnion, arrayRemove, getDocs, writeBatch, getDoc } from 'firebase/firestore';
@@ -11,10 +11,10 @@ import { checkDateMatch, getCurrentWeekStr, getSafeDateStr, getContactThreshold 
 import LoginScreen from './components/LoginScreen';
 import CustomerForm from './components/CustomerForm';
 import CustomerDetail from './components/CustomerDetail';
+import VendorDetailModal from './components/VendorDetailModal'; // ✅ 新增引入
 import ClientsView from './components/ClientsView';
 import DashboardView from './components/DashboardView';
 import VendorsView from './components/VendorsView';
-import Marquee from './components/Marquee';
 import NotificationModal from './components/NotificationModal';
 import BroadcastOverlay from './components/BroadcastOverlay';
 import ProfileModal from './components/ProfileModal';
@@ -34,6 +34,9 @@ const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 const auth = getAuth(app);
 const db = getFirestore(app);
 
+// 定義哪些類別屬於「客戶」
+const CLIENT_CATEGORIES = ['賣方', '出租', '出租方', '買方', '承租', '承租方', '已購', '已租', '潛在', '開發中'];
+
 export default function App() {
   const [sessionUser, setSessionUser] = useState(null);
   const [currentUser, setCurrentUser] = useState(null); 
@@ -49,6 +52,9 @@ export default function App() {
   const [selectedCustomer, setSelectedCustomer] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   
+  // ★★★ 新增：控制廠商 Modal 的狀態 ★★★
+  const [showVendorModal, setShowVendorModal] = useState(false);
+
   const [incomingBroadcast, setIncomingBroadcast] = useState(null);
   const [myBroadcastStatus, setMyBroadcastStatus] = useState(false);
   const [broadcastData, setBroadcastData] = useState(null);
@@ -65,6 +71,12 @@ export default function App() {
 
   const [announcement, setAnnouncement] = useState(SYSTEM_ANNOUNCEMENT);
   
+  // 跑馬燈控制
+  const [showBanner, setShowBanner] = useState(true);
+  const marqueeTextRef = useRef(null);
+  const [marqueeDuration, setMarqueeDuration] = useState(20);
+  const lastContentRef = useRef('');
+
   const [dashboardView, setDashboardView] = useState('stats'); 
   const [newRegionName, setNewRegionName] = useState('');
   const [newProjectNames, setNewProjectNames] = useState({});
@@ -132,6 +144,26 @@ export default function App() {
     return () => unsubscribe();
   }, [currentUser]);
 
+  // 跑馬燈邏輯
+  useEffect(() => {
+      const content = announcement?.content;
+      if (content && content !== lastContentRef.current) {
+          setShowBanner(true);
+          lastContentRef.current = content;
+      }
+  }, [announcement?.content]);
+
+  useEffect(() => {
+    if (showBanner && announcement?.content && marqueeTextRef.current) {
+        const textWidth = marqueeTextRef.current.offsetWidth;
+        const screenWidth = window.innerWidth;
+        const totalDistance = screenWidth + textWidth;
+        const speed = 100;
+        const duration = totalDistance / speed;
+        setMarqueeDuration(Math.max(duration, 5));
+    }
+  }, [showBanner, announcement?.content]);
+
   useEffect(() => {
       if (!currentUser?.companyCode) return;
       const usersRef = collection(db, 'artifacts', appId, 'public', 'data', 'app_users');
@@ -184,20 +216,43 @@ export default function App() {
       }
   }, [broadcastData, customers]);
 
-  // ★★★ 通知計算邏輯 ★★★
+  // ★★★ [1] 資料分流邏輯 ★★★
+  
+  // 1. 客戶列表
+  const clientList = useMemo(() => {
+      return customers.filter(c => c.category && CLIENT_CATEGORIES.includes(c.category));
+  }, [customers]);
+
+  // 2. 廠商列表 (寬鬆認定：類別是廠商 OR 有填行業別 OR 有填廠商資訊)
+  const vendorList = useMemo(() => {
+      return customers.filter(c => {
+          const hasIndustry = c.industry && c.industry.trim().length > 0;
+          const hasVendorInfo = c.vendorInfo && c.vendorInfo.trim().length > 0;
+          const isCategoryVendor = c.category === '廠商';
+          
+          return isCategoryVendor || hasIndustry || hasVendorInfo;
+      });
+  }, [customers]);
+
+
+  // ★★★ [2] 通知系統：只針對「客戶」且排除廠商記事 ★★★
   useEffect(() => {
-      if (!customers || customers.length === 0 || !currentUser) return;
+      if (!clientList || clientList.length === 0 || !currentUser) return;
       const today = new Date();
       const tempNotifications = [];
       
-      customers.forEach(c => {
+      clientList.forEach(c => {
           if (c.owner === currentUser.username) {
-              // 1. 取得最後回報日期 (優先使用筆記日期，其次建檔日)
               let lastDateStr = null;
+              
+              // ✅ 關鍵：只抓取 type !== 'vendor' 的記事來計算最後聯絡日
+              // 這樣就算有新的廠商紀錄，也不會被算進「客戶回報時間」
               if (Array.isArray(c.notes) && c.notes.length > 0) {
-                   const lastNote = [...c.notes].sort((a,b) => (b.date||'').localeCompare(a.date||''))[0];
-                   lastDateStr = lastNote.date;
+                   const clientNotes = c.notes.filter(n => n.type !== 'vendor');
+                   const lastNote = [...clientNotes].sort((a,b) => (b.date||'').localeCompare(a.date||''))[0];
+                   if (lastNote) lastDateStr = lastNote.date;
               }
+              
               if (!lastDateStr) lastDateStr = getSafeDateStr(c.createdAt);
               if (!lastDateStr) lastDateStr = new Date().toISOString().split('T')[0];
               
@@ -207,7 +262,6 @@ export default function App() {
                       const diffTime = today - lastDate;
                       const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24)); 
                       const threshold = getContactThreshold(c.level, c.status);
-                      
                       if (diffDays >= threshold && threshold < 999) {
                           let reason = '需聯繫';
                           if (c.status === 'commissioned') reason = '需回報進度';
@@ -216,13 +270,11 @@ export default function App() {
                       }
                   }
               }
-              // 2. 委託到期
               if (['賣方', '出租', '出租方'].includes(c.category) && c.commissionEndDate && !c.isRenewed) {
                   const endDate = new Date(c.commissionEndDate);
                   const diffDays = Math.ceil((endDate - today) / (86400000));
                   if (diffDays >= 0 && diffDays <= 7) { tempNotifications.push({ id: c.id, name: c.name || c.caseName, category: c.category, type: 'commission', date: c.commissionEndDate, days: diffDays, level: c.level || 'C' }); }
               }
-              // 3. 代書款項
               if (c.scribeDetails && Array.isArray(c.scribeDetails)) {
                   c.scribeDetails.forEach((item, index) => {
                       if (item.payDate && !item.isPaid) {
@@ -234,25 +286,110 @@ export default function App() {
               }
           }
       });
-      
       setNotifications(tempNotifications);
       if (tempNotifications.length > 0 && !hasShownNotifications && view === 'list') {
           setShowNotifications(true);
           setHasShownNotifications(true);
       }
-  }, [customers, currentUser, hasShownNotifications, view]);
+  }, [clientList, currentUser, hasShownNotifications, view]);
 
-  // Handlers
-  const handleAddNote = async (id, content) => { try { const today = new Date().toISOString().split('T')[0]; const newNote = { id: Date.now(), date: today, content, author: currentUser.name }; await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'customers', id), { notes: arrayUnion(newNote), lastContact: today }); if (selectedCustomer && selectedCustomer.id === id) { setSelectedCustomer(prev => ({ ...prev, lastContact: today, notes: [...(prev.notes || []), newNote] })); } } catch(e) { console.error(e); } };
-  const handleDeleteNote = async (id, note) => { try { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'customers', id), { notes: arrayRemove(note) }); if (selectedCustomer && selectedCustomer.id === id) { setSelectedCustomer(prev => ({ ...prev, notes: (prev.notes || []).filter(n => n.id !== note.id) })); } } catch(e) { console.error(e); } };
-  const handleEditNote = async (customerId, noteObj, newContent) => { if (!currentUser) return; try { const custRef = doc(db, 'artifacts', appId, 'public', 'data', 'customers', customerId); const docSnap = await getDoc(custRef); if (docSnap.exists()) { const data = docSnap.data(); const currentNotes = data.notes || []; const updatedNotes = currentNotes.map(n => (n.id === noteObj.id) ? { ...n, content: newContent } : n); await updateDoc(custRef, { notes: updatedNotes }); if (selectedCustomer && selectedCustomer.id === customerId) { setSelectedCustomer(prev => ({ ...prev, notes: updatedNotes })); } } } catch(e) { console.error(e); alert("編輯失敗"); } };
+  // ★★★ [3] 記事本操作邏輯 (最穩健版本：單一 notes 欄位，區分 type) ★★★
+  
+  // ✅ 新增記事：寫入 type
+  const handleAddNote = async (id, content, type = 'client') => { 
+      try { 
+          const today = new Date().toISOString().split('T')[0]; 
+          // 建立新物件，包含 type
+          const newNote = { 
+              id: Date.now(), 
+              date: today, 
+              content, 
+              author: currentUser.name, 
+              type: type // 'client' 或 'vendor'
+          }; 
+          
+          const custRef = doc(db, 'artifacts', appId, 'public', 'data', 'customers', id);
+
+          // 1. 讀取
+          const docSnap = await getDoc(custRef);
+          if (docSnap.exists()) {
+              const data = docSnap.data();
+              // 2. 統一讀取 'notes'
+              const currentNotes = data.notes || [];
+              const updatedNotes = [...currentNotes, newNote];
+              
+              const updateData = { notes: updatedNotes };
+              
+              // ✅ 關鍵：只有 type 不等於 'vendor' (即一般客戶記事) 才更新 lastContact
+              // 這樣廠商的更新就不會影響到客戶列表的紅點通知
+              if (type !== 'vendor') {
+                  updateData.lastContact = today;
+              }
+
+              // 3. 寫入
+              await updateDoc(custRef, updateData);
+
+              // 4. 更新前端
+              if (selectedCustomer && selectedCustomer.id === id) { 
+                  setSelectedCustomer(prev => ({ 
+                      ...prev, 
+                      // 前端狀態同步更新：如果是廠商記事，就不變更 lastContact
+                      lastContact: type !== 'vendor' ? today : prev.lastContact,
+                      notes: updatedNotes 
+                  })); 
+              } 
+          }
+      } catch(e) { console.error("新增失敗", e); alert("新增失敗"); } 
+  };
+
+  // ✅ 刪除記事 (過濾 ID)
+  const handleDeleteNote = async (id, note, type) => { 
+      try { 
+          const custRef = doc(db, 'artifacts', appId, 'public', 'data', 'customers', id);
+          
+          const docSnap = await getDoc(custRef);
+          if (docSnap.exists()) {
+              const data = docSnap.data();
+              const currentNotes = data.notes || [];
+              
+              // 強制轉字串比對 ID
+              const updatedNotes = currentNotes.filter(n => String(n.id) !== String(note.id));
+              
+              await updateDoc(custRef, { notes: updatedNotes });
+
+              if (selectedCustomer && selectedCustomer.id === id) { 
+                  setSelectedCustomer(prev => ({ ...prev, notes: updatedNotes })); 
+              } 
+          }
+      } catch(e) { console.error("刪除失敗", e); alert("刪除失敗"); } 
+  };
+
+  // ✅ 編輯記事 (Map ID)
+  const handleEditNote = async (customerId, noteObj, newContent, type) => { 
+      if (!currentUser) return; 
+      try { 
+          const custRef = doc(db, 'artifacts', appId, 'public', 'data', 'customers', customerId); 
+          const docSnap = await getDoc(custRef); 
+          if (docSnap.exists()) { 
+              const data = docSnap.data(); 
+              const currentNotes = data.notes || []; 
+              
+              const updatedNotes = currentNotes.map(n => (String(n.id) === String(noteObj.id)) ? { ...n, content: newContent } : n); 
+              
+              await updateDoc(custRef, { notes: updatedNotes }); 
+              
+              if (selectedCustomer && selectedCustomer.id === customerId) { 
+                  setSelectedCustomer(prev => ({ ...prev, notes: updatedNotes })); 
+              } 
+          } 
+      } catch(e) { console.error("編輯失敗", e); alert("編輯失敗"); } 
+  };
+
   const handleLogin = async (username, password) => { setLoading(true); try { const usersRef = collection(db, 'artifacts', appId, 'public', 'data', 'app_users'); const q = query(usersRef, where("username", "==", username), where("password", "==", password)); const querySnapshot = await getDocs(q); if (!querySnapshot.empty) { const userDoc = querySnapshot.docs[0]; const userData = { id: userDoc.id, ...userDoc.data() }; if (userData.status === 'suspended') { alert("此帳號已被停權"); setLoading(false); return; } setCurrentUser(userData); localStorage.setItem('crm-user-profile', JSON.stringify(userData)); setView('list'); } else { alert("帳號或密碼錯誤"); } } catch (error) { console.error("Login Error", error); alert("登入發生錯誤"); } setLoading(false); };
   const handleRegister = () => alert("請聯繫管理員建立帳號");
   const handleLogout = () => { setCurrentUser(null); localStorage.removeItem('crm-user-profile'); setView('login'); setActiveTab('clients'); setSearchTerm(''); setLoading(false); setHasShownNotifications(false); };
   const handleAddCustomer = async (formData) => { if (!currentUser) return; setLoading(true); try { const cleanData = { ...formData, companyCode: currentUser.companyCode, owner: currentUser.username, ownerName: currentUser.name, createdAt: formData.createdAt ? (formData.createdAt.includes('T') ? formData.createdAt : new Date(formData.createdAt).toISOString()) : new Date().toISOString(), lastContact: new Date().toISOString().split('T')[0], notes: [] }; Object.keys(cleanData).forEach(key => { if (cleanData[key] === undefined) delete cleanData[key]; }); await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'customers'), cleanData); setView('list'); } catch (error) { alert("新增失敗: " + error.message); } finally { setLoading(false); } };
   const handleEditCustomer = async (formData) => { if (selectedCustomer.owner !== currentUser.username && !isAdmin) return alert("無權限"); try { const { id, ...rest } = formData; const updateData = { ...rest }; if (updateData.createdAt) { const d = new Date(updateData.createdAt); if (!isNaN(d.getTime())) { updateData.createdAt = d; } else { delete updateData.createdAt; } } Object.keys(updateData).forEach(key => updateData[key] === undefined && delete updateData[key]); await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'customers', selectedCustomer.id), updateData); setSelectedCustomer({ ...selectedCustomer, ...updateData }); setView('detail'); } catch (e) { alert("儲存失敗"); } };
-  
-  // ... Other Handlers ...
   const handleBroadcast = async (target, isActive) => { if (!currentUser?.companyCode) { alert("錯誤"); return; } const targetId = (typeof target === 'object' && target?.id) ? target.id : target; try { const broadcastRef = doc(db, 'artifacts', appId, 'public', 'system', 'broadcast_data', currentUser.companyCode); await setDoc(broadcastRef, { isActive: isActive, targetId: targetId || null, presenterId: currentUser.username, timestamp: serverTimestamp() }); } catch (e) { alert("廣播失敗"); } };
   const handleOverlayClose = (isGlobalClose) => { if (isGlobalClose) handleBroadcast(null, false); else setIncomingBroadcast(null); };
   const handleCustomerClick = (customer) => { setSelectedCustomer(customer); setView('detail'); };
@@ -287,67 +424,171 @@ export default function App() {
   const openProfile = () => { const me = allUsers.find(u => u.username === currentUser.username) || currentUser; setMyProfileData(me); setShowProfileModal(true); };
   const handleProfileImage = (e) => { const file = e.target.files[0]; if(file) { if (file.size > 800 * 1024) return alert("圖片太大 (限 800KB)"); const reader = new FileReader(); reader.onloadend = () => setMyProfileData({...myProfileData, photoUrl: reader.result}); reader.readAsDataURL(file); } };
   
-  // Dashboard & Stats Logic
-  const agentStats = useMemo(() => { if (!Array.isArray(allUsers) || !Array.isArray(deals)) return []; const map = {}; allUsers.forEach(u => { if (u && u.name) { map[u.name] = { name: u.name, total: 0, commission: 0 }; } }); deals.forEach(d => { const dateRef = d.dealDate || d.signDate || d.date; if (checkDateMatch(dateRef, dashTimeFrame, statYear, statMonth, statWeek)) { if (Array.isArray(d.devAgents)) { d.devAgents.forEach(ag => { if (ag && ag.user && map[ag.user]) { const amt = parseFloat(String(ag.amount || 0).replace(/,/g, '')) || 0; map[ag.user].commission += amt; map[ag.user].total += 1; } }); } if (Array.isArray(d.salesAgents)) { d.salesAgents.forEach(ag => { if (ag && ag.user && map[ag.user]) { const amt = parseFloat(String(ag.amount || 0).replace(/,/g, '')) || 0; map[ag.user].commission += amt; map[ag.user].total += 1; } }); } } }); return Object.values(map).sort((a,b) => b.commission - a.commission).filter(a => a.commission > 0); }, [deals, dashTimeFrame, statYear, statMonth, statWeek, allUsers]);
-  const dashboardStats = useMemo(() => { let totalRevenue = 0; let wonCount = 0; let newCases = 0; let newBuyers = 0; if (Array.isArray(deals)) { deals.forEach(d => { const dateRef = d.dealDate || d.signDate || d.date; if (checkDateMatch(dateRef, dashTimeFrame, statYear, statMonth, statWeek)) { const sub = parseFloat(String(d.subtotal || 0).replace(/,/g, '')) || 0; totalRevenue += sub; wonCount++; } }); } if (Array.isArray(customers)) { customers.forEach(c => { let dateRef = c.createdAt; if (dateRef && typeof dateRef === 'object' && dateRef.seconds) { dateRef = new Date(dateRef.seconds * 1000); } if (checkDateMatch(dateRef, dashTimeFrame, statYear, statMonth, statWeek)) { if (['賣方', '出租', '出租方'].includes(c.category)) { newCases++; } else { newBuyers++; } } }); } return { totalRevenue, counts: { won: wonCount, cases: newCases, buyers: newBuyers } }; }, [customers, deals, dashTimeFrame, statYear, statMonth, statWeek]);
+  const agentStats = useMemo(() => {
+      if (!Array.isArray(allUsers) || !Array.isArray(deals)) return [];
+      const map = {};
+      allUsers.forEach(u => { if (u && u.name) map[u.name] = { name: u.name, total: 0, commission: 0, photoUrl: u.photoUrl }; });
+      deals.forEach(d => {
+          const dateRef = d.dealDate || d.signDate || d.date;
+          if (checkDateMatch(dateRef, dashTimeFrame, statYear, statMonth, statWeek)) {
+              if (Array.isArray(d.devAgents)) {
+                  d.devAgents.forEach(ag => {
+                      const agentName = ag.user || ag.agent || ag.name;
+                      const target = map[agentName] || (allUsers.find(u => u.username === agentName)?.name && map[allUsers.find(u => u.username === agentName).name]);
+                      if (target) { target.commission += parseFloat(String(ag.amount || 0).replace(/,/g, '')) || 0; target.total += 0.5; }
+                  });
+              }
+              if (Array.isArray(d.salesAgents)) {
+                  d.salesAgents.forEach(ag => {
+                      const agentName = ag.user || ag.agent || ag.name;
+                      const target = map[agentName] || (allUsers.find(u => u.username === agentName)?.name && map[allUsers.find(u => u.username === agentName).name]);
+                      if (target) { target.commission += parseFloat(String(ag.amount || 0).replace(/,/g, '')) || 0; target.total += 0.5; }
+                  });
+              }
+          }
+      });
+      return Object.values(map).sort((a, b) => b.commission - a.commission).filter(a => a.commission > 0);
+  }, [deals, dashTimeFrame, statYear, statMonth, statWeek, allUsers]);
+
+  const dashboardStats = useMemo(() => {
+      let totalRevenue = 0, wonCount = 0, newCases = 0, newBuyers = 0;
+      const marketingMap = {}; 
+      if (Array.isArray(deals)) {
+          deals.forEach(d => {
+              const dateRef = d.dealDate || d.signDate || d.date;
+              if (checkDateMatch(dateRef, dashTimeFrame, statYear, statMonth, statWeek)) {
+                  totalRevenue += parseFloat(String(d.subtotal || 0).replace(/,/g, '')) || 0; wonCount++;
+              }
+          });
+      }
+      if (Array.isArray(customers)) {
+          customers.forEach(c => {
+              let dateRef = c.createdAt;
+              if (dateRef && typeof dateRef === 'object' && dateRef.seconds) dateRef = new Date(dateRef.seconds * 1000);
+              if (checkDateMatch(dateRef, dashTimeFrame, statYear, statMonth, statWeek)) {
+                  if (['賣方', '出租', '出租方'].includes(c.category)) newCases++; else newBuyers++;
+                  const source = c.source || '其他/未分類';
+                  if (!marketingMap[source]) marketingMap[source] = { name: source, newLeads: 0, deals: 0, revenue: 0, cost: 0 };
+                  marketingMap[source].newLeads += 1;
+                  if (c.status === 'closed' || c.status === '成交') marketingMap[source].deals += 1;
+              }
+          });
+      }
+      return { totalRevenue, counts: { won: wonCount, cases: newCases, buyers: newBuyers }, marketingStats: marketingMap };
+  }, [customers, deals, dashTimeFrame, statYear, statMonth, statWeek]);
   
   const handleExportExcel = () => { setIsExporting(true); setTimeout(()=>{ alert("匯出功能已觸發"); setIsExporting(false); setShowExportMenu(false); },1000); };
   
+  // ✅ [修復] 定義 hasActiveBanner，避免 ReferenceError
+  const hasActiveBanner = announcement && announcement.active && announcement.content && showBanner;
+
+  // ★★★ 新增：處理廠商點擊 ★★★
+  const handleVendorClick = (vendor) => {
+      setSelectedCustomer(vendor);
+      setShowVendorModal(true); // 開啟 Modal，而不是切換 view
+  };
+
   if (loading) return <div className="min-h-screen flex items-center justify-center bg-gray-100 dark:bg-slate-950"><Loader2 className="w-8 h-8 animate-spin text-blue-600" /></div>;
   if (view === 'login') return <LoginScreen onLogin={handleLogin} onRegister={handleRegister} loading={loading} darkMode={darkMode} />;
   
   if (view === 'add') return <CustomerForm customers={customers} onSubmit={handleAddCustomer} onCancel={() => setView('list')} appSettings={appSettings} companyProjects={companyProjects} projectAds={projectAds} darkMode={darkMode} allUsers={allUsers} currentUser={currentUser} />;
   if (view === 'edit' && selectedCustomer) return <CustomerForm customers={customers} onSubmit={handleEditCustomer} onCancel={() => setView('detail')} initialData={selectedCustomer} appSettings={appSettings} companyProjects={companyProjects} projectAds={projectAds} darkMode={darkMode} allUsers={allUsers} currentUser={currentUser} />;
-  if (view === 'detail' && selectedCustomer) return <CustomerDetail customer={selectedCustomer} allCustomers={customers} currentUser={currentUser} onEdit={() => setView('edit')} onDelete={handleDeleteCustomer} onAddNote={handleAddNote} onDeleteNote={handleDeleteNote} onEditNote={handleEditNote} onBack={() => setView('list')} darkMode={darkMode} onQuickUpdate={handleQuickUpdate} allUsers={allUsers} onBroadcast={handleBroadcast} onUpdateCustomer={handleDirectUpdate} />;
+  
+  // ✅ 渲染 Detail 頁面 (for ClientsView)
+  if (view === 'detail' && selectedCustomer) {
+      // 這裡理論上只有 ClientsView 會觸發，因為 VendorsView 現在用 Modal 了
+      // 但為了保險，我們還是強制設為 client 模式
+      const noteType = 'client'; 
+
+      return (
+          <CustomerDetail 
+              customer={selectedCustomer} 
+              allCustomers={customers} 
+              currentUser={currentUser} 
+              onEdit={() => setView('edit')} 
+              onDelete={handleDeleteCustomer} 
+              onAddNote={(id, txt, type) => handleAddNote(id, txt, type)} 
+              onDeleteNote={(id, note, type) => handleDeleteNote(id, note, type)} 
+              onEditNote={(id, note, txt, type) => handleEditNote(id, note, txt, type)} 
+              onBack={() => setView('list')} 
+              darkMode={darkMode} 
+              onQuickUpdate={handleQuickUpdate} 
+              allUsers={allUsers} 
+              onBroadcast={handleBroadcast} 
+              onUpdateCustomer={handleDirectUpdate} 
+              noteType={noteType} 
+          />
+      );
+  }
 
   return (
-    <div className={`min-h-screen w-full transition-colors duration-300 ${darkMode ? 'dark bg-slate-950 text-slate-100' : 'bg-gray-50 text-gray-800'} overflow-x-hidden`} style={{ colorScheme: darkMode ? 'dark' : 'light' }}>
+    <div className={`min-h-screen w-full transition-colors duration-300 ${darkMode ? 'dark bg-slate-950 text-slate-100' : 'bg-gray-50 text-gray-800'} overflow-x-hidden ${hasActiveBanner ? 'pt-10' : ''}`} style={{ colorScheme: darkMode ? 'dark' : 'light' }}>
+      
+      <style>{`
+          @keyframes marquee {
+              0% { transform: translateX(100vw); }
+              100% { transform: translateX(-100%); }
+          }
+          .animate-marquee {
+              animation: marquee linear 1; 
+              white-space: nowrap;
+              display: inline-block;
+          }
+      `}</style>
+
+      {hasActiveBanner && (
+          <div className="fixed top-0 left-0 right-0 z-[9999] w-full bg-gradient-to-r from-blue-600 to-blue-500 text-white p-2 shadow-lg flex items-center overflow-hidden h-10">
+              <div className="flex-shrink-0 px-2">
+                  <Megaphone className="w-4 h-4 text-white animate-pulse" />
+              </div>
+              <div className="flex-1 overflow-hidden marquee-container relative h-full flex items-center mr-10">
+                  <div 
+                      ref={marqueeTextRef}
+                      style={{ animationDuration: `${marqueeDuration}s` }}
+                      className="animate-marquee font-bold tracking-wide absolute flex items-center text-sm"
+                      onAnimationEnd={() => setShowBanner(false)}
+                  >
+                      <span>{announcement.content}</span>
+                  </div>
+              </div>
+              <button onClick={() => setShowBanner(false)} className="absolute right-2 top-1/2 -translate-y-1/2 p-1 hover:bg-white/20 rounded-full transition-colors"><X className="w-4 h-4 text-white" /></button>
+          </div>
+      )}
+
       {incomingBroadcast && <BroadcastOverlay data={incomingBroadcast} isPresenter={myBroadcastStatus} onClose={handleOverlayClose} onView={handleViewFromNotification} />}
       {showNotifications && <NotificationModal notifications={notifications} onClose={() => setShowNotifications(false)} onQuickUpdate={handleQuickUpdate} onView={handleViewFromNotification} />}
-      {view === 'list' && <Marquee text={announcement} darkMode={darkMode} />}
       
+      {/* ★★★ 新增：渲染廠商 Modal ★★★ */}
+      {showVendorModal && selectedCustomer && (
+          <VendorDetailModal 
+              vendor={selectedCustomer}
+              onClose={() => setShowVendorModal(false)}
+              onAddNote={handleAddNote}
+              onDeleteNote={handleDeleteNote}
+              onEditNote={handleEditNote}
+              currentUser={currentUser}
+              isAdmin={isAdmin}
+          />
+      )}
+
       {activeTab === 'clients' ? <ClientsView 
-            companyProjects={companyProjects} 
-            onUpdateProjects={handleUpdateProjects} 
-            customers={customers} 
-            currentUser={currentUser} 
-            darkMode={darkMode} 
-            toggleDarkMode={toggleDarkMode} 
-            handleLogout={handleLogout} 
-            listMode={listMode} 
-            setListMode={setListMode} 
-            listYear={listYear} 
-            setListYear={setListYear} 
-            listMonth={listMonth} 
-            setListMonth={setListMonth} 
-            listWeekDate={listWeekDate} 
-            setListWeekDate={setListWeekDate} 
-            searchTerm={searchTerm} 
-            setSearchTerm={setSearchTerm} 
-            loading={loading} 
-            isAdmin={isAdmin} 
-            setView={setView} 
-            setSelectedCustomer={setSelectedCustomer} 
-            onCustomerClick={handleCustomerClick} 
-            onImport={handleBatchImport} 
-            onBatchDelete={handleBatchDelete} 
-            onBroadcast={handleBroadcast}
-            onOpenProfile={openProfile} 
-            appSettings={appSettings}
+            companyProjects={companyProjects} onUpdateProjects={handleUpdateProjects} 
+            customers={clientList} // ✅ 只傳客戶
+            currentUser={currentUser} darkMode={darkMode} toggleDarkMode={toggleDarkMode} handleLogout={handleLogout} listMode={listMode} setListMode={setListMode} listYear={listYear} setListYear={setListYear} listMonth={listMonth} setListMonth={setListMonth} listWeekDate={listWeekDate} setListWeekDate={setListWeekDate} searchTerm={searchTerm} setSearchTerm={setSearchTerm} loading={loading} isAdmin={isAdmin} setView={setView} setSelectedCustomer={setSelectedCustomer} onCustomerClick={handleCustomerClick} onImport={handleBatchImport} onBatchDelete={handleBatchDelete} onBroadcast={handleBroadcast} onOpenProfile={openProfile} appSettings={appSettings}
             /> : 
         activeTab === 'vendors' ? <VendorsView 
-            customers={customers} 
-            currentUser={currentUser} 
-            isAdmin={isAdmin} 
-            onAddNote={handleAddNote} 
-            onDeleteNote={handleDeleteNote} 
+            customers={vendorList} // ✅ 傳遞廠商列表 (含雙重身分)
+            currentUser={currentUser} isAdmin={isAdmin} 
+            onAddNote={(id, txt) => handleAddNote(id, txt, 'vendor')} 
+            onDeleteNote={(id, note) => handleDeleteNote(id, note, 'vendor')} 
+            // ✅ 使用專用的 handleVendorClick，觸發 Modal
+            onVendorClick={handleVendorClick}
             /> : 
         <DashboardView 
             saveSettings={saveSettingsToFirestore}
-            customers={customers}
+            customers={clientList} // ✅ 儀表板主要分析客戶
             isAdmin={isAdmin} isSuperAdmin={isSuperAdmin} currentUser={currentUser} darkMode={darkMode} toggleDarkMode={toggleDarkMode} handleLogout={handleLogout} dashboardStats={dashboardStats} dashTimeFrame={dashTimeFrame} setDashTimeFrame={setDashTimeFrame} agentStats={agentStats} companyProjects={companyProjects} projectAds={projectAds} allUsers={allUsers} newRegionName={newRegionName} setNewRegionName={setNewRegionName} newProjectNames={newProjectNames} setNewProjectNames={setNewProjectNames} onAddRegion={handleAddRegion} onDeleteRegion={handleDeleteRegion} onAddProject={handleAddProject} onDeleteProject={handleDeleteProject} onToggleUser={toggleUserStatus} onDeleteUser={handleDeleteUser} 
-            onManageAd={setAdManageProject} 
-            adManageProject={adManageProject} setAdManageProject={setAdManageProject} adForm={adForm} setAdForm={setAdForm} isEditingAd={isEditingAd} setIsEditingAd={setIsEditingAd} 
+            onManageAd={setAdManageProject} adManageProject={adManageProject} setAdManageProject={setAdManageProject} adForm={adForm} setAdForm={setAdForm} isEditingAd={isEditingAd} setIsEditingAd={setIsEditingAd} 
             dashboardView={dashboardView} setDashboardView={setDashboardView} 
             handleExportExcel={handleExportExcel} isExporting={isExporting} showExportMenu={showExportMenu} setShowExportMenu={setShowExportMenu} 
             appSettings={appSettings} onAddOption={handleAddOption} onDeleteOption={handleDeleteOption} onReorderOption={handleReorderOption} 
@@ -355,16 +596,8 @@ export default function App() {
             statYear={statYear} setStatYear={setStatYear} statMonth={statMonth} setStatMonth={setStatMonth} 
             onSaveAd={handleSaveAd} 
             onEditAdInit={handleEditAdInit} triggerDeleteAd={triggerDeleteAd} onEditAd={handleEditAdFromDashboard} onDeleteAd={handleDeleteAdFromDashboard} announcement={announcement} onSaveAnnouncement={handleSaveAnnouncement} 
-            adWalls={adWalls} 
-            systemAlerts={systemAlerts}
-            onResolveAlert={handleResolveAlert}
-            statWeek={statWeek} 
-            setStatWeek={setStatWeek}
-            onOpenProfile={openProfile}
-            onOpenSettings={() => {
-                setActiveTab('dashboard');
-                setDashboardView('settings');
-            }}
+            adWalls={adWalls} systemAlerts={systemAlerts} onResolveAlert={handleResolveAlert} statWeek={statWeek} setStatWeek={setStatWeek} onOpenProfile={openProfile}
+            onOpenSettings={() => { setActiveTab('dashboard'); setDashboardView('settings'); }}
         />
       }
 
