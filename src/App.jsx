@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Loader2, Moon, Sun, LogOut, Megaphone, X } from 'lucide-react';
+import { Loader2, Megaphone, X } from 'lucide-react';
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getAuth, onAuthStateChanged, signInAnonymously } from 'firebase/auth';
 import { getFirestore, collection, doc, addDoc, updateDoc, deleteDoc, onSnapshot, query, where, setDoc, serverTimestamp, getDocs, getDoc } from 'firebase/firestore';
@@ -37,6 +37,7 @@ const db = getFirestore(app);
 const CLIENT_CATEGORIES = ['賣方', '出租', '出租方', '買方', '承租', '承租方', '已購', '已租', '潛在', '開發中'];
 
 export default function App() {
+  // --- States ---
   const [sessionUser, setSessionUser] = useState(null);
   const [currentUser, setCurrentUser] = useState(null); 
   const [customers, setCustomers] = useState([]);
@@ -65,14 +66,12 @@ export default function App() {
   const [companyProjects, setCompanyProjects] = useState({});
   const [projectAds, setProjectAds] = useState({}); 
   
-  // ★★★ 修正 1: 移除獨立的 adWalls state，統一由 appSettings 管理 ★★★
-  // const [adWalls, setAdWalls] = useState([]); // 移除這行
   const [appSettings, setAppSettings] = useState({ 
       sources: DEFAULT_SOURCES, 
       categories: DEFAULT_CATEGORIES, 
       levels: DEFAULT_LEVELS, 
       scriveners: [],
-      adWalls: [] // 加入 adWalls 初始值
+      adWalls: [] 
   });
 
   const [announcement, setAnnouncement] = useState(SYSTEM_ANNOUNCEMENT);
@@ -105,11 +104,28 @@ export default function App() {
   const [isExporting, setIsExporting] = useState(false);
   const [darkMode, setDarkMode] = useState(() => { try { return localStorage.getItem('crm-dark-mode') === 'true'; } catch { return false; } });
 
+  // --- Effects ---
   useEffect(() => { localStorage.setItem('crm_list_mode', listMode); }, [listMode]);
-  const toggleDarkMode = () => { setDarkMode(prev => { const newVal = !prev; localStorage.setItem('crm-dark-mode', String(newVal)); return newVal; }); };
-  useEffect(() => { if (darkMode) { document.documentElement.classList.add('dark'); document.body.style.backgroundColor = '#020617'; } else { document.documentElement.classList.remove('dark'); document.body.style.backgroundColor = '#f3f4f6'; } }, [darkMode]);
+  
+  const toggleDarkMode = () => { 
+      setDarkMode(prev => { 
+          const newVal = !prev; 
+          localStorage.setItem('crm-dark-mode', String(newVal)); 
+          return newVal; 
+      }); 
+  };
+  
+  useEffect(() => { 
+      if (darkMode) { 
+          document.documentElement.classList.add('dark'); 
+          document.body.style.backgroundColor = '#020617'; 
+      } else { 
+          document.documentElement.classList.remove('dark'); 
+          document.body.style.backgroundColor = '#f3f4f6'; 
+      } 
+  }, [darkMode]);
 
-  // Auth Init
+  // Auth
   useEffect(() => {
     const initAuth = async () => { try { await signInAnonymously(auth); } catch (error) { setLoading(false); } };
     initAuth();
@@ -122,7 +138,7 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // Fetch Customers
+  // Customers
   useEffect(() => {
     if (!sessionUser || !currentUser) return;
     setLoading(true);
@@ -136,7 +152,7 @@ export default function App() {
     return () => unsubscribe();
   }, [sessionUser, currentUser]);
 
-  // ★★★ 修正 2: 讀取 Settings 時，將 adWalls 放入 appSettings ★★★
+  // Settings
   useEffect(() => {
     if (!currentUser?.companyCode) return;
     const settingsDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'company_settings', currentUser.companyCode);
@@ -147,13 +163,12 @@ export default function App() {
         setProjectAds(data.projectAds || {}); 
         setAnnouncement(data.announcement || SYSTEM_ANNOUNCEMENT); 
         
-        // 統一更新 appSettings
         setAppSettings({ 
             sources: data.sources || DEFAULT_SOURCES, 
             categories: data.categories || DEFAULT_CATEGORIES, 
             levels: data.levels || DEFAULT_LEVELS, 
             scriveners: Array.isArray(data.scriveners) ? data.scriveners : [],
-            adWalls: Array.isArray(data.adWalls) ? data.adWalls : [] // 這裡讀取 adWalls
+            adWalls: Array.isArray(data.adWalls) ? data.adWalls : [] 
         });
       }
     });
@@ -180,7 +195,7 @@ export default function App() {
     }
   }, [showBanner, announcement?.content]);
 
-  // Fetch Users
+  // Users
   useEffect(() => {
       if (!currentUser?.companyCode) return;
       const usersRef = collection(db, 'artifacts', appId, 'public', 'data', 'app_users');
@@ -194,7 +209,7 @@ export default function App() {
       return () => unsubscribe();
   }, [currentUser?.companyCode, currentUser?.username]);
 
-  // Fetch Deals
+  // Deals
   useEffect(() => {
       if (currentUser?.companyCode) {
           const dealsRef = collection(db, 'artifacts', appId, 'public', 'data', 'deals');
@@ -208,7 +223,7 @@ export default function App() {
       }
   }, [currentUser]);
 
-  // Fetch Broadcast
+  // Broadcast
   useEffect(() => {
       if (!currentUser?.companyCode) return;
       const broadcastRef = doc(db, 'artifacts', appId, 'public', 'system', 'broadcast_data', currentUser.companyCode);
@@ -248,6 +263,7 @@ export default function App() {
       });
   }, [customers]);
 
+  // Notifications
   useEffect(() => {
       if (!clientList || clientList.length === 0 || !currentUser) return;
       const today = new Date();
@@ -301,38 +317,23 @@ export default function App() {
       }
   }, [clientList, currentUser, hasShownNotifications, view]);
 
-  // Handlers
+  // --- Handlers (Fully Expanded) ---
+
   const handleAddNote = async (id, content, type = 'client') => { 
       try { 
           const today = new Date().toISOString().split('T')[0]; 
-          const newNote = { 
-              id: Date.now(), 
-              date: today, 
-              content, 
-              author: currentUser.name, 
-              type: type
-          }; 
-          
+          const newNote = { id: Date.now(), date: today, content, author: currentUser.name, type: type }; 
           const custRef = doc(db, 'artifacts', appId, 'public', 'data', 'customers', id);
           const docSnap = await getDoc(custRef);
           if (docSnap.exists()) {
               const data = docSnap.data();
               const currentNotes = data.notes || [];
               const updatedNotes = [...currentNotes, newNote];
-              
               const updateData = { notes: updatedNotes };
-              if (type !== 'vendor') {
-                  updateData.lastContact = today;
-              }
-
+              if (type !== 'vendor') updateData.lastContact = today;
               await updateDoc(custRef, updateData);
-
               if (selectedCustomer && selectedCustomer.id === id) { 
-                  setSelectedCustomer(prev => ({ 
-                      ...prev, 
-                      lastContact: type !== 'vendor' ? today : prev.lastContact,
-                      notes: updatedNotes 
-                  })); 
+                  setSelectedCustomer(prev => ({ ...prev, lastContact: type !== 'vendor' ? today : prev.lastContact, notes: updatedNotes })); 
               } 
           }
       } catch(e) { console.error("新增失敗", e); alert("新增失敗"); } 
@@ -346,12 +347,8 @@ export default function App() {
               const data = docSnap.data();
               const currentNotes = data.notes || [];
               const updatedNotes = currentNotes.filter(n => String(n.id) !== String(note.id));
-              
               await updateDoc(custRef, { notes: updatedNotes });
-
-              if (selectedCustomer && selectedCustomer.id === id) { 
-                  setSelectedCustomer(prev => ({ ...prev, notes: updatedNotes })); 
-              } 
+              if (selectedCustomer && selectedCustomer.id === id) setSelectedCustomer(prev => ({ ...prev, notes: updatedNotes })); 
           }
       } catch(e) { console.error("刪除失敗", e); alert("刪除失敗"); } 
   };
@@ -365,32 +362,24 @@ export default function App() {
               const data = docSnap.data(); 
               const currentNotes = data.notes || []; 
               const updatedNotes = currentNotes.map(n => (String(n.id) === String(noteObj.id)) ? { ...n, content: newContent } : n); 
-              
               await updateDoc(custRef, { notes: updatedNotes }); 
-              
-              if (selectedCustomer && selectedCustomer.id === customerId) { 
-                  setSelectedCustomer(prev => ({ ...prev, notes: updatedNotes })); 
-              } 
+              if (selectedCustomer && selectedCustomer.id === customerId) setSelectedCustomer(prev => ({ ...prev, notes: updatedNotes })); 
           } 
       } catch(e) { console.error("編輯失敗", e); alert("編輯失敗"); } 
   };
 
-  // ★★★ 核心修正：系統選項管理 (加入防呆與 appSettings 整合) ★★★
   const handleAddOption = async (type, val) => {
       if (!val) return;
       if (typeof val === 'string' && val.trim() === '') return;
 
-      // 現在這裡一定能取到 adWalls 的舊資料，因為已經整合進 appSettings 了
       const currentList = appSettings[type] || [];
 
-      // 防呆：如果 val 本身是陣列 (舊程式碼的錯誤呼叫)，則報錯或不處理
       if (Array.isArray(val)) {
-          console.error("Critical Error: handleAddOption received an array. It expects a single item.", val);
-          alert("系統錯誤：資料格式異常 (Nested Array)");
+          console.error("Critical Error: handleAddOption received an array.", val);
+          alert("系統錯誤：資料格式異常");
           return;
       }
 
-      // 重複檢查
       const isDuplicate = currentList.some(item => {
           if (typeof item === 'object' && typeof val === 'object') {
               if (type === 'adWalls') return item.address === val.address;
@@ -405,7 +394,6 @@ export default function App() {
       }
 
       const newArray = [...currentList, val];
-      
       setAppSettings({ ...appSettings, [type]: newArray });
 
       if (currentUser?.companyCode) {
@@ -414,7 +402,7 @@ export default function App() {
               await setDoc(settingsRef, { [type]: newArray }, { merge: true });
           } catch (e) {
               console.error("儲存失敗:", e);
-              alert("儲存失敗");
+              alert("儲存失敗: " + e.message);
           }
       }
   };
@@ -458,41 +446,315 @@ export default function App() {
       }
   };
 
-  const handleLogin = async (username, password) => { setLoading(true); try { const usersRef = collection(db, 'artifacts', appId, 'public', 'data', 'app_users'); const q = query(usersRef, where("username", "==", username), where("password", "==", password)); const querySnapshot = await getDocs(q); if (!querySnapshot.empty) { const userDoc = querySnapshot.docs[0]; const userData = { id: userDoc.id, ...userDoc.data() }; if (userData.status === 'suspended') { alert("此帳號已被停權"); setLoading(false); return; } setCurrentUser(userData); localStorage.setItem('crm-user-profile', JSON.stringify(userData)); setView('list'); } else { alert("帳號或密碼錯誤"); } } catch (error) { console.error("Login Error", error); alert("登入發生錯誤"); } setLoading(false); };
+  // Helper Functions for Projects
+  const saveSettingsToFirestore = async (np, na) => { 
+      if(!currentUser?.companyCode) return; 
+      const p={}; 
+      if(np) p.projects=np; 
+      if(na) p.projectAds=na; 
+      try{ 
+          await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'company_settings', currentUser.companyCode), p, {merge:true}); 
+      } catch(e) { console.error(e); } 
+  };
+
+  const handleUpdateProjects = async (newProjects) => { 
+      setCompanyProjects(newProjects); 
+      await saveSettingsToFirestore(newProjects, null); 
+  };
+
+  // General Actions
+  const handleLogin = async (username, password) => { 
+      setLoading(true); 
+      try { 
+          const usersRef = collection(db, 'artifacts', appId, 'public', 'data', 'app_users'); 
+          const q = query(usersRef, where("username", "==", username), where("password", "==", password)); 
+          const querySnapshot = await getDocs(q); 
+          if (!querySnapshot.empty) { 
+              const userDoc = querySnapshot.docs[0]; 
+              const userData = { id: userDoc.id, ...userDoc.data() }; 
+              if (userData.status === 'suspended') { 
+                  alert("此帳號已被停權"); 
+                  setLoading(false); 
+                  return; 
+              } 
+              setCurrentUser(userData); 
+              localStorage.setItem('crm-user-profile', JSON.stringify(userData)); 
+              setView('list'); 
+          } else { 
+              alert("帳號或密碼錯誤"); 
+          } 
+      } catch (error) { 
+          console.error("Login Error", error); 
+          alert("登入發生錯誤"); 
+      } 
+      setLoading(false); 
+  };
+
   const handleRegister = () => alert("請聯繫管理員建立帳號");
-  const handleLogout = () => { setCurrentUser(null); localStorage.removeItem('crm-user-profile'); setView('login'); setActiveTab('clients'); setSearchTerm(''); setLoading(false); setHasShownNotifications(false); };
-  const handleAddCustomer = async (formData) => { if (!currentUser) return; setLoading(true); try { const cleanData = { ...formData, companyCode: currentUser.companyCode, owner: currentUser.username, ownerName: currentUser.name, createdAt: formData.createdAt ? (formData.createdAt.includes('T') ? formData.createdAt : new Date(formData.createdAt).toISOString()) : new Date().toISOString(), lastContact: new Date().toISOString().split('T')[0], notes: [] }; Object.keys(cleanData).forEach(key => { if (cleanData[key] === undefined) delete cleanData[key]; }); await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'customers'), cleanData); setView('list'); } catch (error) { alert("新增失敗: " + error.message); } finally { setLoading(false); } };
-  const handleEditCustomer = async (formData) => { if (selectedCustomer.owner !== currentUser.username && !isAdmin) return alert("無權限"); try { const { id, ...rest } = formData; const updateData = { ...rest }; if (updateData.createdAt) { const d = new Date(updateData.createdAt); if (!isNaN(d.getTime())) { updateData.createdAt = d; } else { delete updateData.createdAt; } } Object.keys(updateData).forEach(key => updateData[key] === undefined && delete updateData[key]); await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'customers', selectedCustomer.id), updateData); setSelectedCustomer({ ...selectedCustomer, ...updateData }); setView('detail'); } catch (e) { alert("儲存失敗"); } };
-  const handleBroadcast = async (target, isActive) => { if (!currentUser?.companyCode) { alert("錯誤"); return; } const targetId = (typeof target === 'object' && target?.id) ? target.id : target; try { const broadcastRef = doc(db, 'artifacts', appId, 'public', 'system', 'broadcast_data', currentUser.companyCode); await setDoc(broadcastRef, { isActive: isActive, targetId: targetId || null, presenterId: currentUser.username, timestamp: serverTimestamp() }); } catch (e) { alert("廣播失敗"); } };
-  const handleOverlayClose = (isGlobalClose) => { if (isGlobalClose) handleBroadcast(null, false); else setIncomingBroadcast(null); };
-  const handleCustomerClick = (customer) => { setSelectedCustomer(customer); setView('detail'); };
-  const handleViewFromNotification = (customerId) => { const target = customers.find(c => c.id === customerId); if (target) { setSelectedCustomer(target); setView('detail'); setShowNotifications(false); } else { alert("找不到該客戶資料"); } };
+  
+  const handleLogout = () => { 
+      setCurrentUser(null); 
+      localStorage.removeItem('crm-user-profile'); 
+      setView('login'); 
+      setActiveTab('clients'); 
+      setSearchTerm(''); 
+      setLoading(false); 
+      setHasShownNotifications(false); 
+  };
+
+  const handleAddCustomer = async (formData) => { 
+      if (!currentUser) return; 
+      setLoading(true); 
+      try { 
+          const cleanData = { 
+              ...formData, 
+              companyCode: currentUser.companyCode, 
+              owner: currentUser.username, 
+              ownerName: currentUser.name, 
+              createdAt: formData.createdAt ? (formData.createdAt.includes('T') ? formData.createdAt : new Date(formData.createdAt).toISOString()) : new Date().toISOString(), 
+              lastContact: new Date().toISOString().split('T')[0], 
+              notes: [] 
+          }; 
+          Object.keys(cleanData).forEach(key => { if (cleanData[key] === undefined) delete cleanData[key]; }); 
+          await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'customers'), cleanData); 
+          setView('list'); 
+      } catch (error) { 
+          alert("新增失敗: " + error.message); 
+      } finally { 
+          setLoading(false); 
+      } 
+  };
+
+  const handleEditCustomer = async (formData) => { 
+      if (selectedCustomer.owner !== currentUser.username && !isAdmin) return alert("無權限"); 
+      try { 
+          const { id, ...rest } = formData; 
+          const updateData = { ...rest }; 
+          if (updateData.createdAt) { 
+              const d = new Date(updateData.createdAt); 
+              if (!isNaN(d.getTime())) { updateData.createdAt = d; } else { delete updateData.createdAt; } 
+          } 
+          Object.keys(updateData).forEach(key => updateData[key] === undefined && delete updateData[key]); 
+          await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'customers', selectedCustomer.id), updateData); 
+          setSelectedCustomer({ ...selectedCustomer, ...updateData }); 
+          setView('detail'); 
+      } catch (e) { alert("儲存失敗"); } 
+  };
+
+  const handleBroadcast = async (target, isActive) => { 
+      if (!currentUser?.companyCode) { alert("錯誤"); return; } 
+      const targetId = (typeof target === 'object' && target?.id) ? target.id : target; 
+      try { 
+          const broadcastRef = doc(db, 'artifacts', appId, 'public', 'system', 'broadcast_data', currentUser.companyCode); 
+          await setDoc(broadcastRef, { isActive: isActive, targetId: targetId || null, presenterId: currentUser.username, timestamp: serverTimestamp() }); 
+      } catch (e) { alert("廣播失敗"); } 
+  };
+
+  const handleOverlayClose = (isGlobalClose) => { 
+      if (isGlobalClose) handleBroadcast(null, false); 
+      else setIncomingBroadcast(null); 
+  };
+
+  const handleCustomerClick = (customer) => { 
+      setSelectedCustomer(customer); 
+      setView('detail'); 
+  };
+
+  const handleViewFromNotification = (customerId) => { 
+      const target = customers.find(c => c.id === customerId); 
+      if (target) { 
+          setSelectedCustomer(target); 
+          setView('detail'); 
+          setShowNotifications(false); 
+      } else { 
+          alert("找不到該客戶資料"); 
+      } 
+  };
+
   const handleBatchImport = async (data) => { alert("請重新整理以檢視新資料"); }; 
   const handleBatchDelete = async (ids) => { alert("請重新整理以檢視變更"); };
-  const handleDirectUpdate = async (id, data) => { try { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'customers', id), data); } catch(e) {} };
-  const handleProfileSave = async (data) => { try { if (data.id) await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'app_users', data.id), data); setShowProfileModal(false); alert("更新成功"); } catch(e) { alert("失敗"); } };
-  const saveSettingsToFirestore = async (np, na) => { if(!currentUser?.companyCode)return; const p={}; if(np)p.projects=np; if(na)p.projectAds=na; try{ await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'company_settings', currentUser.companyCode), p, {merge:true}); }catch(e){} };
-  const handleUpdateProjects = async (newProjects) => { setCompanyProjects(newProjects); await saveSettingsToFirestore(newProjects, null); };
-  const handleSaveAnnouncement = async (t) => { if(!currentUser?.companyCode)return; try{ await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'company_settings', currentUser.companyCode), {announcement:t}, {merge:true}); alert("更新成功"); }catch(e){} };
-  const handleDeleteCustomer = async () => { if (selectedCustomer.owner !== currentUser.username && !isAdmin) return alert("無權限"); try { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'customers', selectedCustomer.id)); setSelectedCustomer(null); setView('list'); } catch(e){ alert("刪除失敗"); } };
-  const handleQuickUpdate = async (notiItem) => { try { if (notiItem.type === 'contact') { const todayStr = new Date().toISOString().split('T')[0]; await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'customers', notiItem.id), { lastContact: todayStr }); } else if (notiItem.type === 'commission') { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'customers', notiItem.id), { isRenewed: true }); } else if (notiItem.type === 'payment') { const updatedDetails = [...notiItem.scribeDetails]; if (updatedDetails[notiItem.itemIndex]) { updatedDetails[notiItem.itemIndex].isPaid = true; await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'customers', notiItem.id), { scribeDetails: updatedDetails }); } } setNotifications(prev => prev.filter(n => !(n.id === notiItem.id && n.type === notiItem.type && n.itemIndex === notiItem.itemIndex))); } catch(e) { console.error(e); } };
-  const handleResolveAlert = async (id) => { if(!currentUser?.companyCode) return; try { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'system', 'alerts', id)); } catch(e) {} };
-  const handleAddRegion = () => { if(!newRegionName.trim()||companyProjects[newRegionName])return; const u={...companyProjects,[newRegionName]:[]}; setCompanyProjects(u); saveSettingsToFirestore(u,null); setNewRegionName(''); };
-  const handleAddProject = (r) => { const n=newProjectNames[r]; if(!n||!n.trim()||companyProjects[r].includes(n))return; const u={...companyProjects,[r]:[...(companyProjects[r]||[]),n]}; setCompanyProjects(u); saveSettingsToFirestore(u,null); setNewProjectNames({...newProjectNames,[r]:''}); };
-  const handleDeleteRegion = (r) => setPendingDelete({type:'region',region:r});
-  const handleDeleteProject = (r,i) => setPendingDelete({type:'project',region:r,item:i});
-  const toggleUserStatus = async (u) => { if(currentUser?.role!=='super_admin')return; try{ await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'app_users', u.id), {status:u.status==='suspended'?'active':'suspended'}); }catch(e){} };
-  const handleDeleteUser = (u) => setPendingDelete({type:'user',item:u});
-  const handleSaveAd = async () => { if (!adForm.name.trim() || !adManageProject || !currentUser?.companyCode) return; const currentAds = projectAds[adManageProject] || []; const safeCurrentAds = Array.isArray(currentAds) ? currentAds : []; const normalizedAds = safeCurrentAds.map(a => typeof a === 'string' ? { id: Date.now() + Math.random(), name: a, startDate: '', endDate: '', cost: '' } : a ); let updatedList; if (isEditingAd) { updatedList = normalizedAds.map(a => a.id === adForm.id ? adForm : a); } else { updatedList = [{ ...adForm, id: Date.now() }, ...normalizedAds]; } const newProjectAds = { ...projectAds, [adManageProject]: updatedList }; setProjectAds(newProjectAds); try { const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'company_settings', currentUser.companyCode); await updateDoc(docRef, { [`projectAds.${adManageProject}`]: updatedList }); } catch (e) { console.error("Ad save failed:", e); } setAdForm({ id: '', name: '', startDate: '', endDate: '', cost: '' }); setIsEditingAd(false); };
+  
+  const handleDirectUpdate = async (id, data) => { 
+      try { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'customers', id), data); } catch(e) {} 
+  };
+
+  const handleProfileSave = async (data) => { 
+      try { 
+          if (data.id) await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'app_users', data.id), data); 
+          setShowProfileModal(false); 
+          alert("更新成功"); 
+      } catch(e) { alert("失敗"); } 
+  };
+
+  const handleSaveAnnouncement = async (t) => { 
+      if(!currentUser?.companyCode) return; 
+      try { 
+          await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'company_settings', currentUser.companyCode), {announcement:t}, {merge:true}); 
+          alert("更新成功"); 
+      } catch(e){} 
+  };
+
+  const handleDeleteCustomer = async () => { 
+      if (selectedCustomer.owner !== currentUser.username && !isAdmin) return alert("無權限"); 
+      try { 
+          await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'customers', selectedCustomer.id)); 
+          setSelectedCustomer(null); 
+          setView('list'); 
+      } catch(e){ alert("刪除失敗"); } 
+  };
+
+  const handleQuickUpdate = async (notiItem) => { 
+      try { 
+          if (notiItem.type === 'contact') { 
+              const todayStr = new Date().toISOString().split('T')[0]; 
+              await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'customers', notiItem.id), { lastContact: todayStr }); 
+          } else if (notiItem.type === 'commission') { 
+              await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'customers', notiItem.id), { isRenewed: true }); 
+          } else if (notiItem.type === 'payment') { 
+              const updatedDetails = [...notiItem.scribeDetails]; 
+              if (updatedDetails[notiItem.itemIndex]) { 
+                  updatedDetails[notiItem.itemIndex].isPaid = true; 
+                  await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'customers', notiItem.id), { scribeDetails: updatedDetails }); 
+              } 
+          } 
+          setNotifications(prev => prev.filter(n => !(n.id === notiItem.id && n.type === notiItem.type && n.itemIndex === notiItem.itemIndex))); 
+      } catch(e) { console.error(e); } 
+  };
+
+  const handleResolveAlert = async (id) => { 
+      if(!currentUser?.companyCode) return; 
+      try { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'system', 'alerts', id)); } catch(e) {} 
+  };
+
+  const handleAddRegion = () => { 
+      if(!newRegionName.trim() || companyProjects[newRegionName]) return; 
+      const u={...companyProjects, [newRegionName]: []}; 
+      setCompanyProjects(u); 
+      saveSettingsToFirestore(u, null); 
+      setNewRegionName(''); 
+  };
+
+  const handleAddProject = (r) => { 
+      const n = newProjectNames[r]; 
+      if(!n || !n.trim() || companyProjects[r].includes(n)) return; 
+      const u={...companyProjects, [r]: [...(companyProjects[r]||[]), n]}; 
+      setCompanyProjects(u); 
+      saveSettingsToFirestore(u, null); 
+      setNewProjectNames({...newProjectNames, [r]: ''}); 
+  };
+
+  const handleDeleteRegion = (r) => setPendingDelete({type:'region', region:r});
+  const handleDeleteProject = (r,i) => setPendingDelete({type:'project', region:r, item:i});
+  
+  const toggleUserStatus = async (u) => { 
+      if(currentUser?.role !== 'super_admin') return; 
+      try { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'app_users', u.id), {status: u.status==='suspended'?'active':'suspended'}); } catch(e){} 
+  };
+  
+  const handleDeleteUser = (u) => setPendingDelete({type:'user', item:u});
+  
+  const handleSaveAd = async () => { 
+      if (!adForm.name.trim()) { alert("請填寫廣告平台名稱"); return; }
+      if (!adManageProject) { alert("無法取得案場資訊"); return; }
+      if (!currentUser?.companyCode) return;
+
+      const currentAds = projectAds[adManageProject] || [];
+      const safeCurrentAds = Array.isArray(currentAds) ? currentAds : [];
+      
+      const newItem = {
+          ...adForm,
+          id: isEditingAd && adForm.id ? adForm.id : Date.now(),
+          cost: adForm.cost || '',
+          startDate: adForm.startDate || '',
+          endDate: adForm.endDate || ''
+      };
+
+      let updatedList;
+      if (isEditingAd) {
+          updatedList = safeCurrentAds.map(a => a.id === newItem.id ? newItem : a);
+      } else {
+          updatedList = [newItem, ...safeCurrentAds];
+      }
+
+      const newProjectAds = { ...projectAds, [adManageProject]: updatedList };
+      setProjectAds(newProjectAds);
+
+      try { 
+          const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'company_settings', currentUser.companyCode); 
+          await setDoc(docRef, { projectAds: newProjectAds }, { merge: true });
+          alert("儲存成功！");
+      } catch (e) { 
+          console.error("Ad save failed:", e); 
+          alert("儲存失敗: " + e.message);
+      } 
+      
+      setAdForm({ id: '', name: '', startDate: '', endDate: '', cost: '' }); 
+      setIsEditingAd(false); 
+  };
+
   const handleEditAdInit = (a) => { setAdForm(typeof a==='string'?{id:Date.now(),name:a,startDate:'',endDate:'',cost:''}:a); setIsEditingAd(true); };
-  const triggerDeleteAd = (i) => setPendingDelete({type:'ad',region:adManageProject,item:i});
+  const triggerDeleteAd = (i) => setPendingDelete({type:'ad', region:adManageProject, item:i});
   const handleEditAdFromDashboard = (a,p) => { setAdManageProject(p); setAdForm(typeof a==='string'?{id:a,name:a,startDate:'',endDate:'',cost:''}:a); setIsEditingAd(true); };
-  const handleDeleteAdFromDashboard = (a,p) => setPendingDelete({type:'ad',region:p,item:a});
-  const executeDelete = async () => { if(!pendingDelete) return; const {type,region,item} = pendingDelete; if(type==='user'){ try{await deleteDoc(doc(db,'artifacts',appId,'public','data','app_users',item.id))}catch(e){} } else if(type==='ad'){ let c = projectAds[region] || []; const u = c.filter(a => (a.id ? a.id !== item.id : a !== item)); const newProjectAds = { ...projectAds, [region]: u }; setProjectAds(newProjectAds); if (currentUser?.companyCode) { const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'company_settings', currentUser.companyCode); await updateDoc(docRef, { [`projectAds.${region}`]: u }); } } else { let u={...companyProjects}; if(type==='region') delete u[region]; else u[region]=u[region].filter(p=>p!==item); setCompanyProjects(u); saveSettingsToFirestore(u,null); } setPendingDelete(null); };
-  const handleSaveDeal = async (dealData) => { try{ const id=dealData.id||Date.now().toString(); let ag=dealData.agentName||(dealData.distributions?.[0]?.agentName)||(allUsers.find(u=>u.username===dealData.agent)?.name)||dealData.agent||currentUser?.name||"未知"; const n={...dealData,id,createdAt:dealData.createdAt||new Date().toISOString(),companyCode:currentUser.companyCode,agentName:ag}; await setDoc(doc(db,'artifacts',appId,'public','data','deals',id),n,{merge:true}); alert("已儲存"); }catch(e){alert("失敗");} };
-  const handleDeleteDeal = async (id) => { if(!confirm("刪除？"))return; try{await deleteDoc(doc(db,'artifacts',appId,'public','data','deals',id))}catch(e){} };
-  const openProfile = () => { const me = allUsers.find(u => u.username === currentUser.username) || currentUser; setMyProfileData(me); setShowProfileModal(true); };
-  const handleProfileImage = (e) => { const file = e.target.files[0]; if(file) { if (file.size > 800 * 1024) return alert("圖片太大 (限 800KB)"); const reader = new FileReader(); reader.onloadend = () => setMyProfileData({...myProfileData, photoUrl: reader.result}); reader.readAsDataURL(file); } };
+  const handleDeleteAdFromDashboard = (a,p) => setPendingDelete({type:'ad', region:p, item:a});
+  
+  const executeDelete = async () => { 
+      if(!pendingDelete) return; 
+      const {type, region, item} = pendingDelete; 
+      
+      if(type==='user'){ 
+          try{await deleteDoc(doc(db,'artifacts',appId,'public','data','app_users',item.id))}catch(e){} 
+      } else if(type==='ad'){ 
+          let c = projectAds[region] || []; 
+          const targetId = item.id || item;
+          const u = c.filter(a => (a.id ? a.id !== targetId : a !== targetId)); 
+          
+          const newProjectAds = { ...projectAds, [region]: u }; 
+          setProjectAds(newProjectAds); 
+          
+          if (currentUser?.companyCode) { 
+              const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'company_settings', currentUser.companyCode); 
+              await setDoc(docRef, { projectAds: newProjectAds }, { merge: true }); 
+          } 
+      } else { 
+          let u={...companyProjects}; 
+          if(type==='region') delete u[region]; else u[region]=u[region].filter(p=>p!==item); 
+          setCompanyProjects(u); 
+          saveSettingsToFirestore(u, null); 
+      } 
+      setPendingDelete(null); 
+  };
+
+  const handleSaveDeal = async (dealData) => { 
+      try { 
+          const id=dealData.id||Date.now().toString(); 
+          let ag=dealData.agentName||(dealData.distributions?.[0]?.agentName)||(allUsers.find(u=>u.username===dealData.agent)?.name)||dealData.agent||currentUser?.name||"未知"; 
+          const n={...dealData, id, createdAt:dealData.createdAt||new Date().toISOString(), companyCode:currentUser.companyCode, agentName:ag}; 
+          await setDoc(doc(db,'artifacts',appId,'public','data','deals',id), n, {merge:true}); 
+          alert("已儲存"); 
+      } catch(e) { alert("失敗"); } 
+  };
+
+  const handleDeleteDeal = async (id) => { 
+      if(!confirm("刪除？")) return; 
+      try { await deleteDoc(doc(db,'artifacts',appId,'public','data','deals',id)); } catch(e){} 
+  };
+
+  // ★★★ Fix: openProfile Definition ★★★
+  const openProfile = () => { 
+      const me = allUsers.find(u => u.username === currentUser.username) || currentUser; 
+      setMyProfileData(me); 
+      setShowProfileModal(true); 
+  };
+
+  const handleProfileImage = (e) => { 
+      const file = e.target.files[0]; 
+      if(file) { 
+          if (file.size > 800 * 1024) return alert("圖片太大 (限 800KB)"); 
+          const reader = new FileReader(); 
+          reader.onloadend = () => setMyProfileData({...myProfileData, photoUrl: reader.result}); 
+          reader.readAsDataURL(file); 
+      } 
+  };
   
   const agentStats = useMemo(() => {
       if (!Array.isArray(allUsers) || !Array.isArray(deals)) return [];
@@ -520,7 +782,14 @@ export default function App() {
       return Object.values(map).sort((a, b) => b.commission - a.commission).filter(a => a.commission > 0);
   }, [deals, dashTimeFrame, statYear, statMonth, statWeek, allUsers]);
 
-  const handleExportExcel = () => { setIsExporting(true); setTimeout(()=>{ alert("匯出功能已觸發"); setIsExporting(false); setShowExportMenu(false); },1000); };
+  const handleExportExcel = () => { 
+      setIsExporting(true); 
+      setTimeout(()=>{ 
+          alert("匯出功能已觸發"); 
+          setIsExporting(false); 
+          setShowExportMenu(false); 
+      }, 1000); 
+  };
   
   const hasActiveBanner = announcement && announcement.active && announcement.content && showBanner;
 
@@ -642,6 +911,20 @@ export default function App() {
 
       <BottomNav activeTab={activeTab} setActiveTab={setActiveTab} isAdmin={isAdmin} systemAlerts={systemAlerts} />
       {showProfileModal && <ProfileModal currentUser={currentUser} onClose={() => setShowProfileModal(false)} onSave={handleProfileSave} />}
+      
+      {/* 執行刪除確認 Modal */}
+      {pendingDelete && (
+          <div className="fixed inset-0 z-[100] bg-black/60 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in">
+              <div className="bg-white dark:bg-slate-900 rounded-xl p-6 shadow-2xl max-w-sm w-full border dark:border-slate-700">
+                  <h3 className="font-bold text-lg mb-2 dark:text-white">確認刪除</h3>
+                  <p className="text-gray-600 dark:text-gray-300 mb-6">確定要刪除此項目嗎？此動作無法復原。</p>
+                  <div className="flex gap-3">
+                      <button onClick={() => setPendingDelete(null)} className="flex-1 py-2.5 rounded-lg font-bold text-gray-500 bg-gray-100 hover:bg-gray-200 dark:bg-slate-800 dark:text-gray-400 dark:hover:bg-slate-700">取消</button>
+                      <button onClick={executeDelete} className="flex-1 py-2.5 rounded-lg font-bold text-white bg-red-600 hover:bg-red-700 shadow-lg">確認刪除</button>
+                  </div>
+              </div>
+          </div>
+      )}
     </div>
   );
 }

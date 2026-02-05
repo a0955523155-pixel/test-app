@@ -13,6 +13,7 @@ import ProjectsPanel from './dashboard/ProjectsPanel';
 import AdWallsPanel from './dashboard/AdWallsPanel';
 import DealsPanel from './dashboard/DealsPanel';
 import UsersPanel from './dashboard/UsersPanel';
+import ROITable from './dashboard/ROITable';
 
 // 引入日期比對工具
 import { checkDateMatch } from '../utils/helpers'; 
@@ -28,50 +29,6 @@ const ROW_STYLES = [
     { bg: 'bg-amber-50', text: 'text-amber-700', icon: 'text-amber-500' },
     { bg: 'bg-indigo-50', text: 'text-indigo-700', icon: 'text-indigo-500' },
 ];
-
-// ★★★ 2. 輔助函式：取得篩選日期範圍 (用於計算廣告費) ★★★
-const getFilterRange = (timeFrame, year, month, weekStr) => {
-    let start = new Date(0); 
-    let end = new Date(2999, 11, 31); 
-
-    if (timeFrame === 'month') {
-        start = new Date(year, month - 1, 1);
-        end = new Date(year, month, 0, 23, 59, 59); 
-    } else if (timeFrame === 'year') {
-        start = new Date(year, 0, 1);
-        end = new Date(year, 11, 31, 23, 59, 59);
-    } else if (timeFrame === 'week' && weekStr) {
-        const [wYear, wWeek] = weekStr.split('-W');
-        if (wYear && wWeek) {
-            const simple = new Date(wYear, 0, 1 + (wWeek - 1) * 7);
-            const dayOfWeek = simple.getDay();
-            const weekStart = simple;
-            if (dayOfWeek <= 4) weekStart.setDate(simple.getDate() - simple.getDay() + 1);
-            else weekStart.setDate(simple.getDate() + 8 - simple.getDay());
-            start = weekStart;
-            end = new Date(weekStart);
-            end.setDate(end.getDate() + 6);
-        }
-    }
-    return { filterStart: start, filterEnd: end };
-};
-
-// ★★★ 3. 效益評級計算函式 (接洽 / 來客) ★★★
-const getEfficiencyRating = (engagements, leads) => {
-    if (!leads || leads === 0) return { rate: 0, label: '無數據', color: 'bg-gray-100 text-gray-400 border-gray-200' };
-    
-    // 計算比率：有效接洽 / 總來客
-    const rate = Math.round((engagements / leads) * 100);
-
-    // 評分標準
-    if (rate >= 50) {
-        return { rate, label: '超讚', color: 'bg-green-100 text-green-700 border-green-200' };
-    } else if (rate >= 20) {
-        return { rate, label: '及格', color: 'bg-blue-100 text-blue-700 border-blue-200' };
-    } else {
-        return { rate, label: '待加強', color: 'bg-red-100 text-red-700 border-red-200' };
-    }
-};
 
 const DashboardView = ({ 
     saveSettings, customers, isAdmin, isSuperAdmin, currentUser, darkMode, toggleDarkMode, handleLogout,
@@ -98,12 +55,11 @@ const DashboardView = ({
     const [editUserModal, setEditUserModal] = useState(false);
     const [editingUserData, setEditingUserData] = useState(null);
 
-    // ★★★ 4. 計算 Dashboard Stats (包含 engagements 與 廣告費用) ★★★
+    // ★★★ 2. 計算 Dashboard Stats (包含 engagements 與 廣告費用) ★★★
     const dashboardStats = useMemo(() => {
         let totalRevenue = 0, wonCount = 0, newCases = 0, newBuyers = 0;
         const marketingMap = {}; 
 
-        // Helper: 確保 marketingMap 的該渠道物件已初始化
         const initSource = (sourceName) => {
             if (!marketingMap[sourceName]) {
                 marketingMap[sourceName] = { 
@@ -118,22 +74,42 @@ const DashboardView = ({
         };
         
         // 1. 計算廣告費用 (整合 projectAds)
-        const { filterStart, filterEnd } = getFilterRange(dashTimeFrame, statYear, statMonth, statWeek);
+        let start = new Date(0); 
+        let end = new Date(2999, 11, 31); 
+
+        if (dashTimeFrame === 'month') {
+            start = new Date(statYear, statMonth - 1, 1);
+            end = new Date(statYear, statMonth, 0, 23, 59, 59); 
+        } else if (dashTimeFrame === 'year') {
+            start = new Date(statYear, 0, 1);
+            end = new Date(statYear, 11, 31, 23, 59, 59);
+        } else if (dashTimeFrame === 'week' && statWeek) {
+            const [wYear, wWeek] = statWeek.split('-W');
+            if (wYear && wWeek) {
+                const simple = new Date(wYear, 0, 1 + (wWeek - 1) * 7);
+                const dayOfWeek = simple.getDay();
+                const weekStart = simple;
+                if (dayOfWeek <= 4) weekStart.setDate(simple.getDate() - simple.getDay() + 1);
+                else weekStart.setDate(simple.getDate() + 8 - simple.getDay());
+                start = weekStart;
+                end = new Date(weekStart);
+                end.setDate(end.getDate() + 6);
+            }
+        }
         
-        // 遍歷所有專案的廣告
+        const filterStart = start;
+        const filterEnd = end;
+        
         Object.values(projectAds || {}).forEach(adList => {
             if (Array.isArray(adList)) {
                 adList.forEach(ad => {
-                    // 檢查廣告日期是否與選定區間重疊
                     const adStart = new Date(ad.startDate);
                     const adEnd = ad.endDate ? new Date(ad.endDate) : new Date(); 
                     const isOverlapping = adStart <= filterEnd && adEnd >= filterStart;
 
                     if (isOverlapping) {
                         const sourceName = (typeof ad === 'string' ? ad : ad.name).trim();
-                        // 初始化
                         initSource(sourceName);
-                        // 累加費用 (移除逗號並轉數字)
                         const cost = parseFloat((ad.cost || '0').toString().replace(/,/g, '')) || 0;
                         marketingMap[sourceName].cost += cost;
                     }
@@ -141,7 +117,7 @@ const DashboardView = ({
             }
         });
 
-        // 2. 計算成交業績 (Deals)
+        // 2. 計算成交業績
         if (Array.isArray(deals)) {
             deals.forEach(d => {
                 const dateRef = d.dealDate || d.signDate || d.date;
@@ -152,7 +128,7 @@ const DashboardView = ({
             });
         }
 
-        // 3. 計算客戶數據 & 渠道效益 (Customers)
+        // 3. 計算客戶數據
         if (Array.isArray(customers)) {
             customers.forEach(c => {
                 let dateRef = c.createdAt;
@@ -162,18 +138,13 @@ const DashboardView = ({
                     if (['賣方', '出租', '出租方'].includes(c.category)) newCases++; else newBuyers++;
                     
                     const source = c.source || '其他/未分類';
-                    
                     initSource(source);
-                    
-                    // 累加來客數
                     marketingMap[source].newLeads += 1;
                     
-                    // 累加成交數
                     if (c.status === 'closed' || c.status === '成交') {
                         marketingMap[source].deals += 1;
                     }
 
-                    // 累加接洽數 (留電)
                     const validStatuses = ['contacting', 'commissioned', 'offer', 'closed', '洽談中', '已委託', '已收斡', '已成交', '成交'];
                     if (validStatuses.includes(c.status)) {
                         marketingMap[source].engagements += 1;
@@ -182,9 +153,9 @@ const DashboardView = ({
             });
         }
         return { totalRevenue, counts: { won: wonCount, cases: newCases, buyers: newBuyers }, marketingStats: marketingMap };
-    }, [customers, deals, projectAds, dashTimeFrame, statYear, statMonth, statWeek]); // ✅ 加入 projectAds 依賴
+    }, [customers, deals, projectAds, dashTimeFrame, statYear, statMonth, statWeek]); 
 
-    // 系統公告編輯暫存狀態
+    // 系統公告暫存
     const [tempAnnouncement, setTempAnnouncement] = useState({
         content: '',
         date: new Date().toISOString().split('T')[0],
@@ -208,14 +179,28 @@ const DashboardView = ({
         }
     };
 
-    // 廣告編輯邏輯
+    // ★★★ 3. 修正：廣告管理 (分流新增/編輯) ★★★
     const handleLocalManageAd = (project, adData) => {
         if (setAdManageProject) setAdManageProject(project);
-        const nextFormData = adData ? { ...adData } : {
-            id: null, name: '', startDate: new Date().toISOString().split('T')[0], endDate: '', cost: '', note: '', project: project
-        };
-        if (setAdForm) setAdForm(nextFormData);
-        if (setIsEditingAd) setIsEditingAd(true);
+        
+        if (adData) {
+            // [編輯模式]
+            if (setAdForm) setAdForm({ ...adData });
+            if (setIsEditingAd) setIsEditingAd(true);
+        } else {
+            // [新增模式]
+            if (setAdForm) setAdForm({
+                id: null,
+                name: '',
+                startDate: new Date().toISOString().split('T')[0],
+                endDate: '',
+                cost: '',
+                note: '',
+                project: project
+            });
+            // 關鍵修正：新增時設為 false，這樣 handleSaveAd 才會走新增邏輯
+            if (setIsEditingAd) setIsEditingAd(false);
+        }
     };
 
     // 圓餅圖數據
@@ -224,7 +209,7 @@ const DashboardView = ({
         .map(([name, data]) => ({ name, value: data.newLeads }));
     const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#6b7280', '#0ea5e9', '#ec4899'];
 
-    // 監控項目計算
+    // 監控項目
     const groupedExpiringItems = useMemo(() => {
         const today = new Date();
         const groups = { alerts: [], ads: [], adWalls: [], commission: [], payment: [] };
@@ -265,7 +250,7 @@ const DashboardView = ({
     
     const handleUserSaveProxy = (e) => {
         e.preventDefault();
-        alert("人員編輯功能需連接後端 API (目前僅為 UI)");
+        alert("人員編輯功能需連接後端 API");
         setEditUserModal(false);
     };
 
@@ -339,90 +324,17 @@ const DashboardView = ({
                             </div>
                         </div>
 
-                        {/* ★★★ 渠道效益評估表格 (整合版) ★★★ */}
-                        <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm mb-6">
-                            <h3 className="text-lg font-bold mb-4 flex items-center gap-2 text-gray-800 dark:text-white">
-                                <Target className="w-5 h-5 text-red-500"/> 渠道效益評估 (廣告 / 留電)
-                            </h3>
-                            <div className="overflow-x-auto">
-                                <table className="w-full text-sm">
-                                    <thead>
-                                        <tr className="bg-gray-50 dark:bg-slate-800 text-gray-500 dark:text-gray-400">
-                                            <th className="px-4 py-3 text-left rounded-l-lg">來源渠道</th>
-                                            {/* ★★★ 欄位名稱修改 ★★★ */}
-                                            <th className="px-4 py-3 text-right">來客數 (新客)</th>
-                                            <th className="px-4 py-3 text-right">留電數 (接洽中)</th>
-                                            <th className="px-4 py-3 text-right">成交數</th>
-                                            {(isSuperAdmin || isAdmin) && (
-                                                <th className="px-4 py-3 text-right">廣告花費</th>
-                                            )}
-                                            <th className="px-4 py-3 text-center rounded-r-lg">轉換率評級</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-gray-100 dark:divide-slate-800">
-                                        {(!dashboardStats.marketingStats || Object.values(dashboardStats.marketingStats).length === 0) ? (
-                                            <tr><td colSpan="6" className="text-center py-8 text-gray-400">尚無數據</td></tr>
-                                        ) : (
-                                            Object.values(dashboardStats.marketingStats)
-                                                .sort((a,b) => b.newLeads - a.newLeads)
-                                                .map((stat, idx) => {
-                                                    const style = ROW_STYLES[idx % ROW_STYLES.length];
-                                                    // ★★★ 呼叫評級函式：傳入 (接洽數, 來客數) ★★★
-                                                    const { rate, label, color } = getEfficiencyRating(stat.engagements, stat.newLeads);
-                                                    
-                                                    // 廣告花費
-                                                    const cost = stat.cost || 0; 
-
-                                                    return (
-                                                        <tr key={idx} className="hover:bg-gray-50 dark:hover:bg-slate-800/50 transition-colors">
-                                                            <td className="px-4 py-3 font-bold text-gray-700 dark:text-gray-200">
-                                                                <div className="flex items-center gap-2">
-                                                                    <span className={`w-6 h-6 rounded flex items-center justify-center ${style.bg} ${style.icon} text-xs font-bold`}>{idx+1}</span>
-                                                                    {stat.name}
-                                                                </div>
-                                                            </td>
-                                                            
-                                                            {/* 來客數 (新客) */}
-                                                            <td className="px-4 py-3 text-right font-mono text-gray-600 dark:text-gray-400">
-                                                                {stat.newLeads}
-                                                            </td>
-
-                                                            {/* ★★★ 留電數 (接洽中) ★★★ */}
-                                                            <td className="px-4 py-3 text-right font-mono font-bold text-blue-600">
-                                                                {stat.engagements}
-                                                            </td>
-
-                                                            {/* 成交數 */}
-                                                            <td className="px-4 py-3 text-right font-mono text-gray-600 dark:text-gray-400">
-                                                                {stat.deals}
-                                                            </td>
-
-                                                            {(isSuperAdmin || isAdmin) && (
-                                                                <td className="px-4 py-3 text-right font-mono text-gray-500">
-                                                                    ${cost.toLocaleString()}
-                                                                </td>
-                                                            )}
-
-                                                            {/* 轉換率評級 */}
-                                                            <td className="px-4 py-3 text-center">
-                                                                <div className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full border text-xs font-bold ${color}`}>
-                                                                    {label} <span className="opacity-70 text-[10px]">({rate}%)</span>
-                                                                </div>
-                                                            </td>
-                                                        </tr>
-                                                    );
-                                                })
-                                        )}
-                                    </tbody>
-                                </table>
-                            </div>
-                            <div className="mt-4 p-3 bg-gray-50 dark:bg-slate-800 rounded-lg text-xs text-gray-500 flex flex-wrap gap-4 justify-center">
-                                <span className="font-bold">評級標準 (接洽/來客)：</span>
-                                <div className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-green-500"></div> 超讚 (≥50%)</div>
-                                <div className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-blue-500"></div> 及格 (≥20%)</div>
-                                <div className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-red-500"></div> 待加強 (&lt;20%)</div>
-                            </div>
-                        </div>
+                        {/* ROITable: 渠道效益分析 */}
+                        <ROITable 
+                            marketingStats={dashboardStats.marketingStats || {}} 
+                            projectAds={projectAds}
+                            dashTimeFrame={dashTimeFrame}
+                            statYear={statYear}
+                            statMonth={statMonth}
+                            statWeek={statWeek}
+                            isSuperAdmin={isSuperAdmin} 
+                            isAdmin={isAdmin} 
+                        />
                         
                         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
                             <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl shadow-sm border border-gray-100 dark:border-slate-800">
@@ -462,7 +374,7 @@ const DashboardView = ({
                 )}
 
                 {/* 4. 廣告牆 */}
-                {dashboardView === 'adwalls' && <AdWallsPanel adWalls={adWalls} onAddOption={onAddOption} companyProjects={companyProjects} />}
+                {dashboardView === 'adwalls' && <AdWallsPanel adWalls={adWalls} onAddOption={onAddOption} onDeleteOption={onDeleteOption} companyProjects={companyProjects} />}
 
                 {/* 5. 成交管理 */}
                 {dashboardView === 'deals' && (
@@ -514,16 +426,20 @@ const DashboardView = ({
                 </div>
             )}
 
-            {/* 廣告編輯 Modal (這是點擊 "新增/編輯" 按鈕後會出現的視窗) */}
-            {isEditingAd && adForm && (
+            {/* 廣告編輯 Modal */}
+            {isEditingAd !== undefined && adForm && adManageProject && (
+                // 註：這裡加了判斷，只有當需要編輯或新增時才顯示 Modal
+                // 但實際上，我們是用 isEditingAd 來控制「模式」，Modal 的顯示與否可能需要另一個 state
+                // 為了簡化，我們假設 adManageProject 有值就顯示 Modal
+                // 讓我們修改一下判斷邏輯，使用 adManageProject 來控制顯示
                 <div className="fixed inset-0 z-[100] bg-black/60 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in">
                     <div className="bg-white dark:bg-slate-900 w-full max-w-md rounded-3xl shadow-2xl flex flex-col overflow-hidden">
                         <div className="p-4 bg-gray-50 dark:bg-slate-800 border-b dark:border-slate-700 flex justify-between items-center">
                             <h3 className="font-bold text-lg dark:text-white flex items-center gap-2">
                                 <Megaphone className="w-5 h-5 text-blue-500"/>
-                                {adForm.id ? `編輯廣告 (${adManageProject})` : `新增廣告 (${adManageProject})`}
+                                {isEditingAd ? `編輯廣告 (${adManageProject})` : `新增廣告 (${adManageProject})`}
                             </h3>
-                            <button onClick={() => setIsEditingAd(false)} className="p-1 hover:bg-gray-200 dark:hover:bg-slate-700 rounded-full transition">
+                            <button onClick={() => setAdManageProject(null)} className="p-1 hover:bg-gray-200 dark:hover:bg-slate-700 rounded-full transition">
                                 <X className="w-5 h-5 text-gray-500"/>
                             </button>
                         </div>
@@ -588,12 +504,12 @@ const DashboardView = ({
                         </div>
 
                         <div className="p-4 border-t dark:border-slate-700 bg-gray-50 dark:bg-slate-800 flex gap-3">
-                            {adForm.id && (
+                            {isEditingAd && (
                                 <button 
                                     onClick={() => {
                                         if(window.confirm('確定要刪除此廣告紀錄嗎？')) {
-                                            triggerDeleteAd(adManageProject, adForm.id);
-                                            setIsEditingAd(false);
+                                            triggerDeleteAd(adForm.id);
+                                            setAdManageProject(null); // Close modal
                                         }
                                     }} 
                                     className="px-4 py-2 rounded-xl text-red-500 bg-red-50 hover:bg-red-100 font-bold transition-colors flex items-center gap-2"
@@ -602,8 +518,8 @@ const DashboardView = ({
                                 </button>
                             )}
                             <div className="flex-1"></div>
-                            <button onClick={() => setIsEditingAd(false)} className="px-6 py-2 rounded-xl font-bold text-gray-500 hover:bg-gray-200 dark:hover:bg-slate-700 transition">取消</button>
-                            <button onClick={() => { onSaveAd(); setIsEditingAd(false); }} className="px-6 py-2 rounded-xl font-bold bg-blue-600 text-white hover:bg-blue-700 shadow-lg flex items-center gap-2">
+                            <button onClick={() => setAdManageProject(null)} className="px-6 py-2 rounded-xl font-bold text-gray-500 hover:bg-gray-200 dark:hover:bg-slate-700 transition">取消</button>
+                            <button onClick={() => { onSaveAd(); setAdManageProject(null); }} className="px-6 py-2 rounded-xl font-bold bg-blue-600 text-white hover:bg-blue-700 shadow-lg flex items-center gap-2">
                                 <Save className="w-4 h-4"/> 儲存
                             </button>
                         </div>
