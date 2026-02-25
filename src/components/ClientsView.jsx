@@ -28,27 +28,41 @@ const getSafeDateString = (dateVal) => {
     return '';
 };
 
-// ★★★ 核心修正：嚴格日期邏輯 (只看客戶回報) ★★★
-// 這裡會過濾掉 type='vendor' 的記事，只計算客戶回報的最新時間
+// 嚴格日期邏輯 (只看客戶回報)
 const getStrictDate = (customer) => {
-    // 1. 取得所有記事
     const allNotes = customer.notes || [];
-    
-    // 2. 過濾：只保留非廠商 (type !== 'vendor') 的記事
     const clientNotes = allNotes.filter(n => n.type !== 'vendor');
 
-    // 3. 如果有客戶記事，取最新的一筆
     if (clientNotes.length > 0) {
-        // 排序 (日期大到小)
         const sortedNotes = [...clientNotes].sort((a,b) => (b.date || '').localeCompare(a.date || ''));
         const lastNote = sortedNotes[0];
         if (lastNote && lastNote.date) {
             return { date: lastNote.date, type: 'update', content: lastNote.content };
         }
     }
-    
-    // 4. 完全沒有客戶記事，回傳建檔日期
     return { date: getSafeDateString(customer.createdAt), type: 'create', content: '' };
+};
+
+// 排序權重換算
+const getStatusWeight = (status) => {
+    switch(status) {
+        case 'closed': return 1;       // 已成交
+        case 'offer': return 2;        // 已收斡
+        case 'commissioned': return 3; // 已委託
+        case 'contacting': return 4;   // 接洽中
+        case 'new': return 5;          // 新客戶
+        case 'lost': return 6;         // 已無效
+        default: return 99;            
+    }
+};
+
+const getLevelWeight = (level) => {
+    if (!level) return 99;
+    const upperLevel = level.toUpperCase();
+    if (upperLevel.includes('A')) return 1;
+    if (upperLevel.includes('B')) return 2;
+    if (upperLevel.includes('C')) return 3;
+    return 99;
 };
 
 const ClientsView = ({ 
@@ -96,7 +110,7 @@ const ClientsView = ({
     const toggleGroup = (groupName) => {
         setExpandedGroups(prev => {
             const isCurrentlyOpen = prev[groupName] !== undefined ? prev[groupName] : (searchTerm !== '');
-            const newState = { ...prev, [groupName]: !isCurrentlyOpen };
+            const newState = { ...prev, [groupName] : !isCurrentlyOpen };
             sessionStorage.setItem('crm_expanded_groups', JSON.stringify(newState));
             return newState;
         });
@@ -176,7 +190,7 @@ const ClientsView = ({
                    }
                    if (!serial || isNaN(serial)) return new Date().toISOString().split('T')[0];
                    const utc_days  = Math.floor(serial - 25569);
-                   const utc_value = utc_days * 86400;                                 
+                   const utc_value = utc_days * 86400;                                
                    const date_info = new Date(utc_value * 1000);
                    return date_info.toISOString().split('T')[0]; 
                 };
@@ -231,7 +245,6 @@ const ClientsView = ({
             }
 
             let matchTime = true;
-            // ★★★ 核心修正：使用嚴格日期 (只看客戶回報) ★★★
             const { date: effectiveDateStr } = getStrictDate(c);
             const effectiveDate = effectiveDateStr ? new Date(effectiveDateStr) : null;
 
@@ -257,18 +270,32 @@ const ClientsView = ({
             return matchSearch && matchCat && matchTime;
         });
 
+        // ★★★ 核心修正：排序邏輯優先順序調整 ★★★
         data.sort((a, b) => {
-            // ★★★ 核心修正：排序也用嚴格日期 ★★★
-            const { date: dateStrA } = getStrictDate(a);
-            const { date: dateStrB } = getStrictDate(b);
-
+            // 1. 群組排序必須最優先 (否則 UI 的群組標題會亂掉、切得很碎)
             if (sortMode !== 'date') {
                 const keyA = getGroupKey(a);
                 const keyB = getGroupKey(b);
                 if (keyA !== keyB) return keyA.localeCompare(keyB, 'zh-Hant');
             }
+
+            // 2. 在同一個群組內 (或無群組時)，若是本週模式，則依照 狀態 > 等級 排序
+            if (listMode === 'week') {
+                const statusA = getStatusWeight(a.status);
+                const statusB = getStatusWeight(b.status);
+                if (statusA !== statusB) return statusA - statusB; 
+
+                const levelA = getLevelWeight(a.level);
+                const levelB = getLevelWeight(b.level);
+                if (levelA !== levelB) return levelA - levelB; 
+            }
+            
+            // 3. 預設與最後防線：時間由新到舊
+            const { date: dateStrA } = getStrictDate(a);
+            const { date: dateStrB } = getStrictDate(b);
             return String(dateStrB).localeCompare(String(dateStrA));
         });
+        
         return data;
     }, [customers, searchTerm, filterCategory, listMode, listYear, listMonth, listWeekDate, customDates, sortMode, isAdmin, currentUser]);
 
@@ -419,7 +446,6 @@ const ClientsView = ({
                     const isGroupAllSelected = idsInGroup.length > 0 && idsInGroup.every(id => selectedIds.includes(id));
                     const isGroupPartialSelected = !isGroupAllSelected && idsInGroup.some(id => selectedIds.includes(id));
                     
-                    // ★★★ 顯示邏輯：只顯示最後一筆回報日，或建檔日 ★★★
                     const { date: displayDate, type: dateType } = getStrictDate(customer);
 
                     return (
@@ -446,7 +472,6 @@ const ClientsView = ({
                                                 <div className="text-xs font-mono text-blue-500 font-bold">{['賣方', '出租', '出租方'].includes(customer.category) ? `開價 ${customer.totalPrice || 0} ${isRental ? '元' : '萬'}` : `預算 ${customer.value || 0} ${isRental ? '元' : '萬'}`}</div>
                                                 <div className="flex justify-between items-center mt-2 pt-2 border-t border-dashed border-gray-200 dark:border-slate-800">
                                                     <span className="text-[10px] bg-gray-100 dark:bg-slate-800 px-2 py-0.5 rounded">{customer.ownerName}</span>
-                                                    {/* ★★★ 清楚標示是回報日還是建檔日 ★★★ */}
                                                     <span className={`text-[10px] ${dateType === 'update' ? 'text-blue-600 font-bold' : 'opacity-70'}`}>
                                                         {dateType === 'update' ? '更新: ' : '建檔: '}{displayDate}
                                                     </span>
