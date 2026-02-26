@@ -603,23 +603,43 @@ export default function App() {
       } catch(e){ alert("刪除失敗"); } 
   };
 
-  const handleQuickUpdate = async (notiItem) => { 
-      try { 
-          if (notiItem.type === 'contact') { 
-              const todayStr = new Date().toISOString().split('T')[0]; 
-              await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'customers', notiItem.id), { lastContact: todayStr }); 
-          } else if (notiItem.type === 'commission') { 
-              await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'customers', notiItem.id), { isRenewed: true }); 
-          } else if (notiItem.type === 'payment') { 
-              const updatedDetails = [...notiItem.scribeDetails]; 
-              if (updatedDetails[notiItem.itemIndex]) { 
-                  updatedDetails[notiItem.itemIndex].isPaid = true; 
-                  await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'customers', notiItem.id), { scribeDetails: updatedDetails }); 
-              } 
-          } 
-          setNotifications(prev => prev.filter(n => !(n.id === notiItem.id && n.type === notiItem.type && n.itemIndex === notiItem.itemIndex))); 
-      } catch(e) { console.error(e); } 
-  };
+const handleQuickUpdate = async (notiItem) => { 
+        try { 
+            if (notiItem.type === 'contact') { 
+                const todayStr = new Date().toISOString().split('T')[0]; 
+                await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'customers', notiItem.id), { lastContact: todayStr }); 
+            } else if (notiItem.type === 'commission') { 
+                await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'customers', notiItem.id), { isRenewed: true }); 
+            } else if (notiItem.type === 'payment') { 
+                const targetCustomer = customers.find(c => c.id === notiItem.id);
+                if (targetCustomer && targetCustomer.scribeDetails) {
+                    const updatedDetails = [...targetCustomer.scribeDetails]; 
+                    if (updatedDetails[notiItem.itemIndex]) { 
+                        updatedDetails[notiItem.itemIndex].isPaid = true; 
+                        await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'customers', notiItem.id), { scribeDetails: updatedDetails }); 
+                    } 
+                }
+            } else if (notiItem.type === 'ads') {
+                // ★★★ 改用精準的陣列索引 (Index) 進行刪除，解決沒有 ID 刪不掉的問題
+                const region = notiItem.projectName;
+                const targetIdx = notiItem.itemIndex; 
+                let c = projectAds[region] || []; 
+                const u = c.filter((_, idx) => idx !== targetIdx); 
+                const newProjectAds = { ...projectAds, [region]: u }; 
+                setProjectAds(newProjectAds); 
+                await saveSettingsToFirestore({ projectAds: newProjectAds }); 
+            } else if (notiItem.type === 'adWalls') {
+                // ★★★ 廣告牆同樣使用索引刪除
+                const targetIdx = notiItem.itemIndex;
+                const newArray = (appSettings.adWalls || []).filter((_, idx) => idx !== targetIdx);
+                setAppSettings({ ...appSettings, adWalls: newArray });
+                await saveSettingsToFirestore({ adWalls: newArray });
+            }
+            
+            // 移除本地通知畫面的提示
+            setNotifications(prev => prev.filter(n => !(n.id === notiItem.id && n.type === notiItem.type && n.itemIndex === notiItem.itemIndex))); 
+        } catch(e) { console.error(e); } 
+    };
 
   const handleResolveAlert = async (id) => { 
       if(!currentUser?.companyCode) return; 
@@ -902,6 +922,7 @@ export default function App() {
             statYear={statYear} setStatYear={setStatYear} statMonth={statMonth} setStatMonth={setStatMonth} 
             onSaveAd={handleSaveAd} 
             onEditAdInit={handleEditAdInit} triggerDeleteAd={triggerDeleteAd} onEditAd={handleEditAdFromDashboard} onDeleteAd={handleDeleteAdFromDashboard} announcement={announcement} onSaveAnnouncement={handleSaveAnnouncement} 
+            onQuickUpdate={handleQuickUpdate}
             // ✅ 傳遞正確的 adWalls (從 appSettings 取)
             adWalls={appSettings.adWalls || []} 
             systemAlerts={systemAlerts} onResolveAlert={handleResolveAlert} statWeek={statWeek} setStatWeek={setStatWeek} onOpenProfile={openProfile}

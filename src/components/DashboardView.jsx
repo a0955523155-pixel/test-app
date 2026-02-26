@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { 
-    LayoutDashboard, Moon, Sun, LogOut, BarChart2, AlertTriangle, LayoutGrid, Monitor, DollarSign, Users, Settings, Database, Trash2, Download, Menu, User as UserIcon, Shield, Briefcase, Save, X, ToggleLeft, ToggleRight, Megaphone, Edit2, Target, ThumbsUp
+    LayoutDashboard, Moon, Sun, LogOut, BarChart2, AlertTriangle, LayoutGrid, Monitor, DollarSign, Users, Settings, Database, Trash2, Download, Menu, User as UserIcon, Shield, Briefcase, Save, X, ToggleLeft, ToggleRight, Megaphone, Edit2, Target, ThumbsUp, Calendar
 } from 'lucide-react';
 import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
@@ -14,6 +14,7 @@ import AdWallsPanel from './dashboard/AdWallsPanel';
 import DealsPanel from './dashboard/DealsPanel';
 import UsersPanel from './dashboard/UsersPanel';
 import ROITable from './dashboard/ROITable';
+import ShiftPanel from './dashboard/ShiftPanel'; 
 
 // 引入日期比對工具
 import { checkDateMatch } from '../utils/helpers'; 
@@ -48,7 +49,9 @@ const DashboardView = ({
     adWalls, systemAlerts, onResolveAlert,
     statWeek, setStatWeek,
     onOpenProfile,
-    onOpenSettings
+    onOpenSettings,
+    shiftSettings, onSaveShiftSettings,
+    onQuickUpdate // 接收勾選完成功能
 }) => {
     
     const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -185,7 +188,8 @@ const DashboardView = ({
         
         if (adData) {
             // [編輯模式]
-            if (setAdForm) setAdForm({ ...adData });
+            const normalizedData = typeof adData === 'string' ? { id: Math.random(), name: adData, startDate: '', endDate: '', cost: '' } : { ...adData };
+            if (setAdForm) setAdForm(normalizedData);
             if (setIsEditingAd) setIsEditingAd(true);
         } else {
             // [新增模式]
@@ -198,7 +202,6 @@ const DashboardView = ({
                 note: '',
                 project: project
             });
-            // 關鍵修正：新增時設為 false，這樣 handleSaveAd 才會走新增邏輯
             if (setIsEditingAd) setIsEditingAd(false);
         }
     };
@@ -209,7 +212,7 @@ const DashboardView = ({
         .map(([name, data]) => ({ name, value: data.newLeads }));
     const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#6b7280', '#0ea5e9', '#ec4899'];
 
-    // 監控項目
+    // ★★★ 4. 監控項目 (包含安全的日期解析 & 增加 ID 以供刪除) ★★★
     const groupedExpiringItems = useMemo(() => {
         const today = new Date();
         const groups = { alerts: [], ads: [], adWalls: [], commission: [], payment: [] };
@@ -227,21 +230,93 @@ const DashboardView = ({
                     if (item.payDate && !item.isPaid) {
                         const end = new Date(item.payDate);
                         const diff = Math.ceil((end - today) / 86400000);
-                        if (diff <= 30) groups.payment.push({ id: c.id, name: `${c.name} (${item.item})`, desc: `待付款 (${c.ownerName})`, startDate: c.createdAt?.split('T')[0] || '-', endDate: item.payDate, days: diff });
+                        if (diff <= 30) {
+                            // 安全解析 createdAt 避免 split 錯誤
+                            let startStr = '-';
+                            try {
+                                if (c.createdAt) {
+                                    if (typeof c.createdAt === 'string') {
+                                        startStr = c.createdAt.split('T')[0];
+                                    } else if (typeof c.createdAt.toDate === 'function') {
+                                        startStr = c.createdAt.toDate().toISOString().split('T')[0];
+                                    } else if (c.createdAt.seconds) {
+                                        startStr = new Date(c.createdAt.seconds * 1000).toISOString().split('T')[0];
+                                    } else if (c.createdAt instanceof Date) {
+                                        startStr = c.createdAt.toISOString().split('T')[0];
+                                    }
+                                }
+                            } catch(e) {
+                                console.error("Date parse error", e);
+                            }
+
+                            groups.payment.push({ 
+                                id: c.id, 
+                                name: `${c.name} (${item.item})`, 
+                                desc: `待付款 (${c.ownerName})`, 
+                                startDate: startStr, 
+                                endDate: item.payDate, 
+                                days: diff,
+                                itemIndex: idx // 記錄索引以便勾選
+                            });
+                        }
                     }
                 });
             }
         });
         
         Object.entries(projectAds).forEach(([projectName, ads]) => {
-            if (Array.isArray(ads)) { ads.forEach(ad => { const adObj = typeof ad === 'string' ? { name: ad, endDate: '' } : ad; if (adObj.endDate) { const end = new Date(adObj.endDate); const diff = Math.ceil((end - today) / 86400000); groups.ads.push({ name: `${projectName} - ${adObj.name}`, desc: '廣告到期', startDate: adObj.startDate || '-', endDate: adObj.endDate, days: diff }); } }); }
+            if (Array.isArray(ads)) { 
+                ads.forEach((ad, idx) => { 
+                    const adObj = typeof ad === 'string' ? { id: ad, name: ad, endDate: '' } : ad; 
+                    if (adObj.endDate) { 
+                        const end = new Date(adObj.endDate); 
+                        const diff = Math.ceil((end - today) / 86400000); 
+                        groups.ads.push({ 
+                            id: adObj.id || idx, // ★ 帶上廣告 ID 供刪除
+                            itemIndex: idx, 
+                            projectName: projectName, // ★ 帶上專案名稱供刪除
+                            name: `${projectName} - ${adObj.name}`, 
+                            desc: '廣告到期', 
+                            startDate: adObj.startDate || '-', 
+                            endDate: adObj.endDate, 
+                            days: diff 
+                        }); 
+                    } 
+                }); 
+            }
         });
         
-        adWalls.forEach(w => { if (w.expiryDate) { const end = new Date(w.expiryDate); const diff = Math.ceil((end - today) / 86400000); groups.adWalls.push({ name: w.address, desc: `廣告牆 (${w.project || '無案場'})`, startDate: '-', endDate: w.expiryDate, days: diff }); } });
+        adWalls.forEach((w, idx) => { 
+            if (w.expiryDate) { 
+                const end = new Date(w.expiryDate); 
+                const diff = Math.ceil((end - today) / 86400000); 
+                groups.adWalls.push({ 
+                    id: w.address || idx, // ★ 帶上地址當作 ID 供刪除
+                    itemIndex: idx,
+                    name: w.address, 
+                    desc: `廣告牆 (${w.project || '無案場'})`, 
+                    startDate: '-', 
+                    endDate: w.expiryDate, 
+                    days: diff 
+                }); 
+            } 
+        });
         
         Object.keys(groups).forEach(key => { if (key !== 'alerts') { groups[key].sort((a,b) => a.days - b.days); } });
         return groups;
     }, [customers, projectAds, adWalls, systemAlerts]);
+
+    // ★★★ 5. 計算是否有 <= 3 天的急迫通知 (紅點顯示) ★★★
+    const hasUrgentAlerts = useMemo(() => {
+        if (systemAlerts && systemAlerts.length > 0) return true;
+        const keys = ['ads', 'adWalls', 'commission', 'payment'];
+        for (let key of keys) {
+            if (groupedExpiringItems[key] && groupedExpiringItems[key].some(item => item.days <= 3)) {
+                return true;
+            }
+        }
+        return false;
+    }, [systemAlerts, groupedExpiringItems]);
 
     const handleOpenUserEdit = (user) => {
         setEditingUserData(user || { name: '', phone: '', lineId: '', licenseId: '', username: '', password: '', role: 'user', status: 'active', photoUrl: '' });
@@ -257,7 +332,8 @@ const DashboardView = ({
     const NavItem = ({ id, label, icon: Icon }) => (
         <button onClick={() => { setDashboardView(id); setIsMenuOpen(false); }} className={`flex items-center gap-3 w-full px-4 py-3 text-sm font-bold transition-all border-b last:border-0 border-gray-100 dark:border-slate-700 ${dashboardView === id ? 'bg-blue-50 text-blue-600 dark:bg-slate-700 dark:text-white' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800'}`}>
             <Icon className="w-4 h-4" /> {label}
-            {id === 'monitor' && systemAlerts.length > 0 && <span className="w-2 h-2 bg-red-500 rounded-full ml-auto animate-pulse"></span>}
+            {/* 手機選單紅點 */}
+            {id === 'monitor' && hasUrgentAlerts && <span className="w-2 h-2 bg-red-500 rounded-full ml-auto animate-pulse"></span>}
         </button>
     );
 
@@ -268,9 +344,11 @@ const DashboardView = ({
                 <div className="flex items-center gap-4">
                     <h2 className="text-2xl font-black dark:text-white">管理後台</h2>
                     <div className="hidden md:flex bg-gray-100 dark:bg-slate-800 p-1 rounded-xl gap-1">
-                        {['stats', 'monitor', 'projects', 'adwalls', 'deals', 'settings'].map(v => (
-                            <button key={v} onClick={() => setDashboardView(v)} className={`px-3 py-1.5 rounded-lg text-sm font-bold transition-all ${dashboardView === v ? 'bg-white dark:bg-slate-700 shadow text-blue-600 dark:text-white' : 'text-gray-500'}`}>
-                                {v === 'stats' ? '概況' : v === 'monitor' ? '監控' : v === 'projects' ? '案件' : v === 'adwalls' ? '廣告牆' : v === 'deals' ? '成交' : '設定'}
+                        {['stats', 'monitor', 'projects', 'adwalls', 'deals', 'shifts', 'settings'].map(v => (
+                            <button key={v} onClick={() => setDashboardView(v)} className={`relative px-3 py-1.5 rounded-lg text-sm font-bold transition-all ${dashboardView === v ? 'bg-white dark:bg-slate-700 shadow text-blue-600 dark:text-white' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}>
+                                {v === 'stats' ? '概況' : v === 'monitor' ? '監控' : v === 'projects' ? '案件' : v === 'adwalls' ? '廣告牆' : v === 'deals' ? '成交' : v === 'shifts' ? '排班' : '設定'}
+                                {/* ★ 桌面版選單紅點 ★ */}
+                                {v === 'monitor' && hasUrgentAlerts && <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 border border-white dark:border-slate-800 rounded-full animate-pulse"></span>}
                             </button>
                         ))}
                         {isSuperAdmin && <button onClick={() => setDashboardView('users')} className={`px-3 py-1.5 rounded-lg text-sm font-bold transition-all ${dashboardView === 'users' ? 'bg-white dark:bg-slate-700 shadow text-blue-600 dark:text-white' : 'text-gray-500'}`}>人員</button>}
@@ -279,8 +357,10 @@ const DashboardView = ({
                 
                 <div className="flex items-center gap-2">
                     <div className="relative md:hidden">
-                        <button onClick={() => setIsMenuOpen(!isMenuOpen)} className="p-2.5 bg-white dark:bg-slate-800 rounded-xl border dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors shadow-sm flex items-center gap-2">
+                        <button onClick={() => setIsMenuOpen(!isMenuOpen)} className="relative p-2.5 bg-white dark:bg-slate-800 rounded-xl border dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors shadow-sm flex items-center gap-2">
                             <Menu className="w-5 h-5 text-gray-700 dark:text-gray-200"/><span className="text-xs font-bold">選單</span>
+                            {/* ★ 手機板按鈕紅點 ★ */}
+                            {hasUrgentAlerts && <span className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 border-2 border-white rounded-full animate-pulse"></span>}
                         </button>
                         {isMenuOpen && (
                             <div className="absolute right-0 top-12 w-48 bg-white dark:bg-slate-800 rounded-xl shadow-2xl border border-gray-100 dark:border-slate-700 overflow-hidden z-50 animate-in fade-in slide-in-from-top-2">
@@ -289,6 +369,7 @@ const DashboardView = ({
                                 <NavItem id="projects" label="案件與廣告" icon={LayoutGrid} />
                                 <NavItem id="adwalls" label="廣告牆" icon={Monitor} />
                                 <NavItem id="deals" label="成交管理" icon={DollarSign} />
+                                <NavItem id="shifts" label="自動排班" icon={Calendar} />
                                 {isSuperAdmin && <NavItem id="users" label="人員管理" icon={Users} />}
                                 {isAdmin && <NavItem id="settings" label="系統設定" icon={Settings} />}
                             </div>
@@ -324,17 +405,7 @@ const DashboardView = ({
                             </div>
                         </div>
 
-                        {/* ROITable: 渠道效益分析 */}
-                        <ROITable 
-                            marketingStats={dashboardStats.marketingStats || {}} 
-                            projectAds={projectAds}
-                            dashTimeFrame={dashTimeFrame}
-                            statYear={statYear}
-                            statMonth={statMonth}
-                            statWeek={statWeek}
-                            isSuperAdmin={isSuperAdmin} 
-                            isAdmin={isAdmin} 
-                        />
+                        <ROITable marketingStats={dashboardStats.marketingStats || {}} projectAds={projectAds} dashTimeFrame={dashTimeFrame} statYear={statYear} statMonth={statMonth} statWeek={statWeek} isSuperAdmin={isSuperAdmin} isAdmin={isAdmin} />
                         
                         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
                             <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl shadow-sm border border-gray-100 dark:border-slate-800">
@@ -351,56 +422,33 @@ const DashboardView = ({
                 )}
 
                 {/* 2. 時效監控 */}
-                {dashboardView === 'monitor' && <MonitorPanel groupedItems={groupedExpiringItems} onResolveAlert={onResolveAlert} />}
+                {dashboardView === 'monitor' && (
+                    <MonitorPanel 
+                        groupedItems={groupedExpiringItems} 
+                        onResolveAlert={onResolveAlert} 
+                        onQuickUpdate={onQuickUpdate} // ★★★ 傳入勾選功能
+                    />
+                )}
 
                 {/* 3. 案件與廣告 */}
                 {dashboardView === 'projects' && (
-                    <ProjectsPanel 
-                        companyProjects={companyProjects} projectAds={projectAds}
-                        newRegionName={newRegionName} setNewRegionName={setNewRegionName}
-                        newProjectNames={newProjectNames} setNewProjectNames={setNewProjectNames}
-                        onAddRegion={onAddRegion} onDeleteRegion={onDeleteRegion}
-                        onAddProject={onAddProject} onDeleteProject={onDeleteProject}
-                        // 使用修復後的本地管理函式
-                        onManageAd={handleLocalManageAd}
-                        adForm={adForm}
-                        setAdForm={setAdForm}
-                        isEditingAd={isEditingAd}
-                        setIsEditingAd={setIsEditingAd}
-                        onSaveAd={onSaveAd}
-                        triggerDeleteAd={triggerDeleteAd}
-                        saveSettings={saveSettings}
-                    />
+                    <ProjectsPanel companyProjects={companyProjects} projectAds={projectAds} newRegionName={newRegionName} setNewRegionName={setNewRegionName} newProjectNames={newProjectNames} setNewProjectNames={setNewProjectNames} onAddRegion={onAddRegion} onDeleteRegion={onDeleteRegion} onAddProject={onAddProject} onDeleteProject={onDeleteProject} onManageAd={handleLocalManageAd} adForm={adForm} setAdForm={setAdForm} isEditingAd={isEditingAd} setIsEditingAd={setIsEditingAd} onSaveAd={onSaveAd} triggerDeleteAd={triggerDeleteAd} saveSettings={saveSettings} />
                 )}
 
                 {/* 4. 廣告牆 */}
                 {dashboardView === 'adwalls' && <AdWallsPanel adWalls={adWalls} onAddOption={onAddOption} onDeleteOption={onDeleteOption} companyProjects={companyProjects} />}
 
                 {/* 5. 成交管理 */}
-                {dashboardView === 'deals' && (
-                    <DealsPanel 
-                        deals={deals} allUsers={allUsers} scrivenerOptions={appSettings.scriveners} 
-                        onSave={handleSaveDeal} onDelete={handleDeleteDeal} 
-                    />
-                )}
+                {dashboardView === 'deals' && <DealsPanel deals={deals} allUsers={allUsers} scrivenerOptions={appSettings.scriveners} onSave={handleSaveDeal} onDelete={handleDeleteDeal} />}
 
-                {/* 6. 人員管理 */}
-                {dashboardView === 'users' && isSuperAdmin && (
-                    <UsersPanel users={allUsers} isSuperAdmin={isSuperAdmin} onToggleUser={onToggleUser} onDeleteUser={onDeleteUser} onEditUser={handleOpenUserEdit} />
-                )}
+                {/* 6. 自動排班 */}
+                {dashboardView === 'shifts' && <ShiftPanel allUsers={allUsers} shiftSettings={shiftSettings} onSaveSettings={onSaveShiftSettings} />}
 
-                {/* 7. 系統設定 */}
-                {dashboardView === 'settings' && isAdmin && (
-                    <SettingsPanel 
-                        appSettings={appSettings} 
-                        onAddOption={onAddOption} onDeleteOption={onDeleteOption} onReorderOption={onReorderOption} 
-                        announcement={announcement} 
-                        // 傳遞包裝後的儲存函式
-                        onSaveAnnouncement={handleLocalSaveAnnouncement}
-                        tempAnnouncement={tempAnnouncement} 
-                        setTempAnnouncement={setTempAnnouncement}
-                    />
-                )}
+                {/* 7. 人員管理 */}
+                {dashboardView === 'users' && isSuperAdmin && <UsersPanel users={allUsers} isSuperAdmin={isSuperAdmin} onToggleUser={onToggleUser} onDeleteUser={onDeleteUser} onEditUser={handleOpenUserEdit} />}
+
+                {/* 8. 系統設定 */}
+                {dashboardView === 'settings' && isAdmin && <SettingsPanel appSettings={appSettings} onAddOption={onAddOption} onDeleteOption={onDeleteOption} onReorderOption={onReorderOption} announcement={announcement} onSaveAnnouncement={handleLocalSaveAnnouncement} tempAnnouncement={tempAnnouncement} setTempAnnouncement={setTempAnnouncement} />}
             </div>
 
             {/* --- Modals --- */}
@@ -428,10 +476,6 @@ const DashboardView = ({
 
             {/* 廣告編輯 Modal */}
             {isEditingAd !== undefined && adForm && adManageProject && (
-                // 註：這裡加了判斷，只有當需要編輯或新增時才顯示 Modal
-                // 但實際上，我們是用 isEditingAd 來控制「模式」，Modal 的顯示與否可能需要另一個 state
-                // 為了簡化，我們假設 adManageProject 有值就顯示 Modal
-                // 讓我們修改一下判斷邏輯，使用 adManageProject 來控制顯示
                 <div className="fixed inset-0 z-[100] bg-black/60 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in">
                     <div className="bg-white dark:bg-slate-900 w-full max-w-md rounded-3xl shadow-2xl flex flex-col overflow-hidden">
                         <div className="p-4 bg-gray-50 dark:bg-slate-800 border-b dark:border-slate-700 flex justify-between items-center">
@@ -509,7 +553,7 @@ const DashboardView = ({
                                     onClick={() => {
                                         if(window.confirm('確定要刪除此廣告紀錄嗎？')) {
                                             triggerDeleteAd(adForm.id);
-                                            setAdManageProject(null); // Close modal
+                                            setAdManageProject(null); 
                                         }
                                     }} 
                                     className="px-4 py-2 rounded-xl text-red-500 bg-red-50 hover:bg-red-100 font-bold transition-colors flex items-center gap-2"
