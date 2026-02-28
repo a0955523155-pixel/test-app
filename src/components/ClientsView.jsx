@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { 
-    Search, Plus, Upload, FileSpreadsheet, 
+    Search, Plus, Upload, FileSpreadsheet, Download, // ★ 加入 Download 圖示
     ChevronDown, ChevronRight, Users, MapPin, Building,
     Megaphone, X, UserCircle, CheckSquare, CheckCircle, ArrowUpDown, LogOut, Sun, Moon, Trash2,
     Edit, RefreshCw, Calendar
@@ -153,6 +153,42 @@ const ClientsView = ({
         } catch (error) { console.error("Batch Error:", error); alert("批量更新失敗"); } finally { setIsProcessingBatch(false); }
     };
 
+    // ★★★ 新增：嚴格限制只能匯出本人的資料 ★★★
+    const handleExportMyCustomers = () => {
+        // 強制過濾：只留下 owner 與當前登入者相同的資料
+        const myCustomers = customers.filter(c => c.owner === currentUser?.username);
+
+        if (myCustomers.length === 0) {
+            alert("目前沒有屬於您的客戶資料可以匯出。");
+            return;
+        }
+
+        // 格式化要匯出的資料，讓 Excel 看起來更清楚
+        const exportData = myCustomers.map(c => {
+            const statusMap = { 'new': '新客戶', 'contacting': '接洽中', 'commissioned': '已委託', 'offer': '已收斡', 'closed': '已成交', 'lost': '已無效' };
+            return {
+                "建檔日期": getSafeDateString(c.createdAt),
+                "姓名": c.name || c.caseName || "",
+                "電話": c.phone || "",
+                "分類": c.category || "",
+                "狀態": statusMap[c.status] || c.status || "",
+                "等級": c.level || "",
+                "來源": c.source || "",
+                "需求區域/地址": c.reqRegion || "",
+                "案場": Array.isArray(c.project) ? c.project.join('、') : (c.project || ""),
+                "預算/開價 (萬)": c.value || c.totalPrice || "",
+                "備註": c.remarks || "",
+                "最後聯絡日": c.lastContact || ""
+            };
+        });
+
+        // 產生 Excel 檔案並下載
+        const ws = XLSX.utils.json_to_sheet(exportData);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "我的客戶資料");
+        XLSX.writeFile(wb, `我的客戶資料_${new Date().toISOString().split('T')[0]}.xlsx`);
+    };
+
     const handleDownloadTemplate = () => {
         const template = [{ "姓名": "王小明", "電話": "0912345678", "分類": "買方", "狀態": "new", "等級": "A", "來源": "FB", "區域": "鳳山區", "有興趣的案場": "美術一號院", "預算": "1500", "備註": "急尋三房", "建檔日期": "2023-10-01", "次要服務專員": "" }];
         const ws = XLSX.utils.json_to_sheet(template);
@@ -270,16 +306,13 @@ const ClientsView = ({
             return matchSearch && matchCat && matchTime;
         });
 
-        // ★★★ 核心修正：排序邏輯優先順序調整 ★★★
         data.sort((a, b) => {
-            // 1. 群組排序必須最優先 (否則 UI 的群組標題會亂掉、切得很碎)
             if (sortMode !== 'date') {
                 const keyA = getGroupKey(a);
                 const keyB = getGroupKey(b);
                 if (keyA !== keyB) return keyA.localeCompare(keyB, 'zh-Hant');
             }
 
-            // 2. 在同一個群組內 (或無群組時)，若是本週模式，則依照 狀態 > 等級 排序
             if (listMode === 'week') {
                 const statusA = getStatusWeight(a.status);
                 const statusB = getStatusWeight(b.status);
@@ -290,7 +323,6 @@ const ClientsView = ({
                 if (levelA !== levelB) return levelA - levelB; 
             }
             
-            // 3. 預設與最後防線：時間由新到舊
             const { date: dateStrA } = getStrictDate(a);
             const { date: dateStrB } = getStrictDate(b);
             return String(dateStrB).localeCompare(String(dateStrA));
@@ -414,9 +446,20 @@ const ClientsView = ({
                                 <select value={listMode} onChange={(e) => setListMode(e.target.value)} className={`px-3 py-1.5 rounded-lg border text-xs font-bold outline-none ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white'}`}><option value="all">全部時間</option><option value="month">本月</option><option value="week">本週</option><option value="custom">自訂多選</option></select>
                                 {listMode === 'month' && <><select value={listYear} onChange={(e) => setListYear(Number(e.target.value))} className={`px-2 py-1.5 rounded-lg border text-xs ${darkMode ? 'bg-slate-800' : 'bg-white'}`}>{Array.from({length:5},(_,i)=>new Date().getFullYear()-i).map(y=><option key={y} value={y}>{y}年</option>)}</select><select value={listMonth} onChange={(e) => setListMonth(Number(e.target.value))} className={`px-2 py-1.5 rounded-lg border text-xs ${darkMode ? 'bg-slate-800' : 'bg-white'}`}>{Array.from({length:12},(_,i)=>i+1).map(m=><option key={m} value={m}>{m}月</option>)}</select></>}
                                 {listMode === 'week' && <input type="date" value={listWeekDate} onChange={(e) => setListWeekDate(e.target.value)} className={`px-2 py-1.5 rounded-lg border text-xs ${darkMode ? 'bg-slate-800' : 'bg-white'}`} />}
+                                
                                 <div className="flex-1"></div>
-                                {isAdmin && <button onClick={handleDownloadTemplate} className="p-2 text-green-600 bg-green-50 hover:bg-green-100 rounded-lg"><FileSpreadsheet className="w-4 h-4"/></button>}
-                                <label className="p-2 text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg cursor-pointer flex items-center"><Upload className="w-4 h-4"/><input type="file" ref={fileInputRef} accept=".xlsx, .xls" onChange={handleFileUpload} className="hidden" /></label>
+                                
+                                {/* ★★★ 新增：專屬匯出按鈕 ★★★ */}
+                                <button 
+                                    onClick={handleExportMyCustomers} 
+                                    className="p-2 text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg flex-shrink-0"
+                                    title="匯出我的客戶"
+                                >
+                                    <Download className="w-4 h-4"/>
+                                </button>
+                                
+                                {isAdmin && <button onClick={handleDownloadTemplate} className="p-2 text-green-600 bg-green-50 hover:bg-green-100 rounded-lg flex-shrink-0"><FileSpreadsheet className="w-4 h-4"/></button>}
+                                <label className="p-2 text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg cursor-pointer flex items-center flex-shrink-0"><Upload className="w-4 h-4"/><input type="file" ref={fileInputRef} accept=".xlsx, .xls" onChange={handleFileUpload} className="hidden" /></label>
                             </div>
                             {listMode === 'custom' && (
                                 <div className="bg-orange-50 dark:bg-orange-900/20 p-2 rounded-lg flex flex-wrap items-center gap-2 animate-in slide-in-from-top-1">
